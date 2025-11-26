@@ -14,12 +14,35 @@ class ScoringService:
         """
         Calculate trading signals based on market data.
         """
-        logger.debug("Calculating signals...")
-        if market_data.empty:
-            return {}
+        # logger.debug("Calculating signals...")
+        if market_data.empty or len(market_data) < 21:
+            return {"action": "HOLD", "score": 0.0}
         
-        # Example: Calculate RSI if TA-Lib was available
-        # rsi = talib.RSI(market_data['close'].values, timeperiod=14)
+        # Simple Moving Average Crossover Strategy
+        # Use .copy() to avoid SettingWithCopyWarning if a slice is passed
+        df = market_data.copy()
+        df['sma_fast'] = df['close'].rolling(window=5).mean()
+        df['sma_slow'] = df['close'].rolling(window=20).mean()
         
-        # Placeholder logic
-        return {"action": "HOLD", "score": 0.0}
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+        
+        action = "HOLD"
+        score = 0.0
+        
+        if pd.notna(latest['sma_fast']) and pd.notna(latest['sma_slow']) and \
+           pd.notna(prev['sma_fast']) and pd.notna(prev['sma_slow']):
+            
+            if latest['sma_fast'] > latest['sma_slow'] and prev['sma_fast'] <= prev['sma_slow']:
+                action = "BUY"
+                score = 0.8
+            elif latest['sma_fast'] < latest['sma_slow'] and prev['sma_fast'] >= prev['sma_slow']:
+                action = "SELL"
+                score = -0.8
+        
+        return {
+            "action": action, 
+            "score": score, 
+            "price": float(latest['close']),
+            "timestamp": latest.get('timestamp')
+        }
