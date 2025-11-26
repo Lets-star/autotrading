@@ -32,11 +32,41 @@ class TradingBot:
                 # 2. Calculate Signal
                 signal = self.scoring.calculate_signals(data)
                 
-                # 3. Check Risk
-                if signal.get("action") == "BUY": # Example
-                    if self.risk.validate_order({"amount": 10}): # Placeholder
-                        # 4. Execute
-                        await self.execution.execute_order(signal)
+                # 3. Check Risk and Calculate Sizing
+                if signal.get("action") == "BUY": 
+                    # Placeholder for getting current market data for risk calculation
+                    # In a real scenario, we'd have current price, ATR, liquidity from data feed
+                    current_price = 100.0 # Placeholder
+                    atr_value = 2.0 # Placeholder
+                    liquidity = 100000.0 # Placeholder
+                    
+                    # Validate Setup
+                    if self.risk.validate_trade_setup(current_open_trades=0, atr_value=atr_value, liquidity=liquidity):
+                        
+                        # Calculate Stops
+                        stops = self.risk.calculate_stops(current_price, atr_value, side='buy')
+                        
+                        # Calculate Sizing
+                        # Assume account balance is fetched from exchange
+                        account_balance = 10000.0 # Placeholder
+                        qty = self.risk.calculate_position_size(
+                            account_balance=account_balance,
+                            entry_price=current_price,
+                            stop_loss_price=stops['stop_loss']
+                        )
+                        
+                        if qty > 0:
+                            # 4. Execute
+                            order_params = {
+                                "symbol": "BTCUSDT", # Placeholder
+                                "side": "Buy",
+                                "qty": qty,
+                                "price": current_price,
+                                "stop_loss": stops['stop_loss'],
+                                "take_profit": stops['take_profit'],
+                                "order_type": "Limit"
+                            }
+                            await self.execution.execute_order(order_params)
                 
                 await asyncio.sleep(1)
             except Exception as e:
