@@ -27,7 +27,7 @@ class TradingBot:
         while self.running:
             try:
                 # 1. Get Data
-                data = self.data_feed.get_latest_data()
+                data = await self.data_feed.get_latest_data()
                 
                 # 2. Calculate Signal
                 signal = self.scoring.calculate_signals(data)
