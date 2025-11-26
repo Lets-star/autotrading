@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "trading-bot"
+version = "0.1.0"
+description = "A foundational Python project structure for a trading bot."
+authors = ["Admin <admin@example.com>"]
+readme = "README.md"
+packages = [{include = "trading_bot", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+streamlit = "^1.30.0"
+websockets = "^12.0"
+pandas = "^2.0.0"
+numpy = "^1.24.0"
+# TA-Lib = "^0.4.0" # Requires C library installation
+python-binance = "^1.0.0"
+pybit = "^5.0.0"
+pydantic = "^2.0.0"
+pydantic-settings = "^2.0.0"
+python-dotenv = "^1.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
