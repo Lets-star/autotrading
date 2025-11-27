@@ -1,4 +1,5 @@
 import asyncio
+import time
 from binance import AsyncClient, BinanceSocketManager
 from typing import List, Optional
 from .models import Kline, Trade, OrderBook, OrderBookLevel
@@ -99,15 +100,12 @@ class BinanceDataFeed:
             symbol=symbol,
             bids=bids,
             asks=asks,
-            timestamp=asyncio.get_running_loop().time(), # Local timestamp or derive?
+            timestamp=int(time.time() * 1000), # Local timestamp
             # Binance doesn't send event time in partial depth sometimes, let's check docs.
             # Usually partial depth has no event time E.
             # We can use update_id.
             update_id=data.get('lastUpdateId', 0)
         )
-        
-        # We need timestamp. Let's use current time if not provided.
-        ob.timestamp = int(asyncio.get_running_loop().time() * 1000)
         
         await self.storage.update_orderbook(ob)
 

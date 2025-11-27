@@ -9,7 +9,7 @@ def mock_data_fetcher():
         fetcher_instance = MockFetcher.return_value
         
         # Create dummy dataframe
-        dates = pd.date_range(start='2023-01-01', periods=100, freq='1H')
+        dates = pd.date_range(start='2023-01-01', periods=100, freq='1h')
         df = pd.DataFrame({
             'start_time': range(100),
             'timestamp': dates,
@@ -35,7 +35,7 @@ def test_backtest_run(mock_data_fetcher):
 
 def test_backtest_with_trades():
     # Setup data that produces a cross
-    dates = pd.date_range(start='2023-01-01', periods=50, freq='1H')
+    dates = pd.date_range(start='2023-01-01', periods=50, freq='1h')
     data = {
         'timestamp': dates,
         'close': [100] * 20 + [110] * 5 + [90] * 25 # Jump then drop to trigger SMAs

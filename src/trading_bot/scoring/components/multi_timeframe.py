@@ -12,10 +12,15 @@ class MultiTimeframeAlignment(ScoringComponent):
 
     def _get_trend(self, df: pd.DataFrame) -> int:
         # Simple trend: Close > SMA(20) -> 1, else -1
-        if df.empty:
+        if df.empty or len(df) < 20:
             return 0
         sma = df['close'].rolling(window=20).mean()
-        if df['close'].iloc[-1] > sma.iloc[-1]:
+        
+        current_sma = sma.iloc[-1]
+        if pd.isna(current_sma):
+            return 0
+            
+        if df['close'].iloc[-1] > current_sma:
             return 1
         return -1
 

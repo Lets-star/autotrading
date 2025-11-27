@@ -8,7 +8,7 @@ from trading_bot.scoring.components.market_structure import MarketStructure
 
 class TestScoringEngine(unittest.TestCase):
     def setUp(self):
-        dates = pd.date_range(start='2023-01-01', periods=100, freq='1H')
+        dates = pd.date_range(start='2023-01-01', periods=100, freq='1h')
         data = {
             'open': np.random.rand(100) * 100,
             'high': np.random.rand(100) * 100,

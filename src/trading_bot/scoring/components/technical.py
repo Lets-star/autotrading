@@ -42,9 +42,15 @@ class TechnicalIndicators(ScoringComponent):
         ema_s = self._calculate_ema(close, self.ema_short)
         ema_l = self._calculate_ema(close, self.ema_long)
         
+        if rsi.empty or ema_s.empty or ema_l.empty:
+             return ComponentScore(score=0.0, confidence=0.0, metadata={"error": "Insufficient data"})
+
         current_rsi = rsi.iloc[-1]
         current_ema_s = ema_s.iloc[-1]
         current_ema_l = ema_l.iloc[-1]
+        
+        if pd.isna(current_rsi) or pd.isna(current_ema_s) or pd.isna(current_ema_l):
+            return ComponentScore(score=0.0, confidence=0.0, metadata={"error": "Insufficient data for indicators"})
         
         # Simple Logic: 
         # RSI > 70 -> Overbought (-1)
