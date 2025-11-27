@@ -87,4 +87,3 @@ class CompositeScoreEngine:
             self.weights[name] = new_weight
             
         logger.info(f"Updated weights: {self.weights}")
-

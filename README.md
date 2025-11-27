@@ -7,14 +7,15 @@ This project is a foundational Python scaffold for a trading bot.
 ```
 src/
 └── trading_bot/
-    ├── data_feeds/    # Data ingestion services
+    ├── backtesting/   # Backtesting engine
+    ├── data_feeds/    # Data ingestion services (Binance, Bybit)
     ├── scoring/       # Strategy and scoring logic
     ├── execution/     # Order execution logic
     ├── risk/          # Risk management
-    ├── ui/            # Streamlit dashboard
+    ├── ui/            # Streamlit dashboard resources
     ├── config.py      # Centralized configuration
     ├── main.py        # Bot runner entry point
-    └── app.py         # Streamlit launcher
+    └── app.py         # Streamlit dashboard
 ```
 
 ## Setup
@@ -59,9 +60,21 @@ cp .env.example .env
 | `ATR_MULTIPLIER` | Multiplier for ATR stop loss | `2.0` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 
+### Secrets Management
+
+For the Streamlit dashboard, you can configure secrets in `.streamlit/secrets.toml`:
+
+```toml
+[bybit]
+api_key = "YOUR_API_KEY"
+api_secret = "YOUR_API_SECRET"
+```
+
+The application will fall back to environment variables (`API_KEY`, `API_SECRET`) if secrets are not found.
+
 ## Usage
 
-### Run the Bot
+### Run the Bot (Headless)
 
 ```bash
 poetry run python -m trading_bot.main
@@ -71,4 +84,19 @@ poetry run python -m trading_bot.main
 
 ```bash
 poetry run streamlit run src/trading_bot/app.py
+```
+
+## Backtesting
+
+The dashboard now includes a "Backtest Lab" mode.
+- Connects to Bybit to fetch historical data.
+- Simulates trades using `ScoringService` and `RiskService`.
+- Displays PnL, Win Rate, and Equity Curve.
+
+## Testing
+
+To run the integration tests:
+
+```bash
+poetry run pytest
 ```
