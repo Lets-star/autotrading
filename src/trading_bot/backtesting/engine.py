@@ -1,4 +1,5 @@
 import pandas as pd
+from typing import Dict, Any, List, Optional
 from trading_bot.scoring.service import ScoringService
 from trading_bot.risk.service import RiskService
 from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
@@ -7,7 +8,7 @@ from trading_bot.logger import get_logger
 logger = get_logger(__name__)
 
 class BacktestEngine:
-    def __init__(self, api_key=None, api_secret=None):
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
         self.scoring = ScoringService()
         self.risk = RiskService()
         self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
@@ -15,23 +16,29 @@ class BacktestEngine:
         self.balance = 10000.0
         self.position = None 
     
-    def run(self, symbol="BTCUSDT", interval="1h", limit=500):
+    def run(self, symbol: str = "BTCUSDT", interval: str = "1h", limit: int = 500) -> Dict[str, Any]:
+        """
+        Run the backtest simulation.
+        """
         self.trades = []
         self.balance = 10000.0
         self.position = None
         
-        logger.info(f"Starting backtest for {symbol} {interval}")
+        logger.info(f"Starting backtest for {symbol} {interval} with {limit} candles")
         
         # Fetch data
         df = self.fetcher.fetch_history(symbol, interval, limit)
         if df.empty:
             logger.error("No data returned from Bybit")
-            return {"error": "No data"}
+            return {"error": "No data returned from Bybit"}
             
         logger.info(f"Fetched {len(df)} candles")
             
         # Iterate
-        # Need at least 21 candles for SMA
+        # Need at least 21 candles for SMA (Scoring Service Requirement)
+        if len(df) < 21:
+             return {"error": "Insufficient data for strategy (need > 21 candles)"}
+
         for i in range(21, len(df)):
             # Window of data up to i
             window = df.iloc[:i+1]
@@ -66,7 +73,7 @@ class BacktestEngine:
                     
         return self._generate_report(df)
 
-    def _open_position(self, signal_type, price, timestamp, size_usdt):
+    def _open_position(self, signal_type: str, price: float, timestamp: pd.Timestamp, size_usdt: float):
         amount = size_usdt / price
         self.position = {
             'type': 'LONG' if signal_type == 'BUY' else 'SHORT',
@@ -76,7 +83,7 @@ class BacktestEngine:
             'size_usdt': size_usdt
         }
         
-    def _close_position(self, price, timestamp):
+    def _close_position(self, price: float, timestamp: pd.Timestamp):
         # Calculate PnL
         entry = self.position['entry_price']
         amount = self.position['amount']
@@ -101,7 +108,7 @@ class BacktestEngine:
         self.trades.append(trade_record)
         self.position = None
 
-    def _generate_report(self, df):
+    def _generate_report(self, df: pd.DataFrame) -> Dict[str, Any]:
         win_rate = 0.0
         equity_curve = []
         if self.trades:

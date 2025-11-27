@@ -57,7 +57,7 @@ if mode == "Live Dashboard":
         signal = scoring.calculate_signals(df)
         
         col1.metric("Price", f"{latest['close']:.2f}", f"{price_change:.2f}")
-        col2.metric("Composite Score", f"{signal['score']}", delta_color="off")
+        col2.metric("Composite Score", f"{signal['score']:.2f}", delta_color="off")
         col3.metric("Action", signal['action'], delta_color="normal")
         col4.metric("Risk Status", "Normal", "0.0%")
     else:
@@ -75,8 +75,16 @@ if mode == "Live Dashboard":
         st.subheader("Order Book")
         ob = fetcher.fetch_orderbook(selected_symbol)
         if ob:
-            bids = pd.DataFrame(ob['bids'], columns=['Price', 'Size'])
-            asks = pd.DataFrame(ob['asks'], columns=['Price', 'Size'])
+            bids = pd.DataFrame(ob.get('bids', []), columns=['Price', 'Size'])
+            asks = pd.DataFrame(ob.get('asks', []), columns=['Price', 'Size'])
+            
+            # Convert to numeric for display
+            if not bids.empty:
+                bids['Price'] = pd.to_numeric(bids['Price'])
+                bids['Size'] = pd.to_numeric(bids['Size'])
+            if not asks.empty:
+                asks['Price'] = pd.to_numeric(asks['Price'])
+                asks['Size'] = pd.to_numeric(asks['Size'])
             
             st.markdown("**Asks**")
             st.dataframe(asks.head(5), hide_index=True)
@@ -125,16 +133,26 @@ elif mode == "Backtest Lab":
                 
                 # Metrics
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Total PnL", f"${results['total_pnl']:.2f}", delta=f"{results['total_pnl']/results['initial_balance']*100:.2f}%")
-                m2.metric("Win Rate", f"{results['win_rate']:.1f}%")
-                m3.metric("Trades", results['trade_count'])
-                m4.metric("Final Balance", f"${results['final_balance']:.2f}")
+                
+                total_pnl = results.get('total_pnl', 0.0)
+                initial_balance = results.get('initial_balance', 10000.0)
+                pnl_pct = (total_pnl / initial_balance) * 100
+                
+                m1.metric("Total PnL", f"${total_pnl:.2f}", delta=f"{pnl_pct:.2f}%")
+                m2.metric("Win Rate", f"{results.get('win_rate', 0.0):.1f}%")
+                m3.metric("Trades", results.get('trade_count', 0))
+                m4.metric("Final Balance", f"${results.get('final_balance', 0.0):.2f}")
                 
                 # Visuals
-                trades_df = pd.DataFrame(results['trades'])
+                trades_data = results.get('trades', [])
+                trades_df = pd.DataFrame(trades_data)
                 
                 st.subheader("Equity Curve")
-                st.line_chart([results['initial_balance']] + results['equity_curve'])
+                equity_curve = results.get('equity_curve', [])
+                if equity_curve:
+                    st.line_chart([initial_balance] + equity_curve)
+                else:
+                    st.info("No equity curve to display (no trades).")
                 
                 if not trades_df.empty:
                     st.subheader("Trade History")
