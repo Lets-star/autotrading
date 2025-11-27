@@ -103,9 +103,11 @@ class BacktestEngine:
 
     def _generate_report(self, df):
         win_rate = 0.0
+        equity_curve = []
         if self.trades:
             wins = len([t for t in self.trades if t['pnl'] > 0])
             win_rate = (wins / len(self.trades)) * 100
+            equity_curve = [t['balance'] for t in self.trades]
             
         return {
             "initial_balance": 10000.0,
@@ -114,5 +116,6 @@ class BacktestEngine:
             "win_rate": win_rate,
             "trade_count": len(self.trades),
             "trades": self.trades,
+            "equity_curve": equity_curve,
             "data": df
         }
