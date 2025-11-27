@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     api_secret: Optional[str] = Field(None, description="Exchange API Secret")
     exchange_id: str = Field("binance", description="Exchange ID (binance, bybit)")
     
-    risk_limit_amount: float = Field(100.0, description="Max amount per trade")
+    risk_limit_amount: float = Field(2000.0, description="Max amount per trade")
     atr_multiplier: float = Field(2.0, description="Multiplier for ATR stop loss")
     
     log_level: str = Field("INFO", description="Logging level")
