@@ -37,25 +37,16 @@ class ScoringService:
         """
         self.engine.update_weights(signal_context, outcome)
 
+    # Legacy method adapter if needed, but the ticket implies a new design.
     def calculate_signals(self, market_data: pd.DataFrame) -> dict:
         """
-        Adapter for calls passing only market data (e.g. from backtester).
+        Adapter for legacy calls passing only market data.
         """
-        if market_data.empty:
-            return {"action": "HOLD", "score": 0.0}
-
-        latest = market_data.iloc[-1]
-        
-        # We only have market_data (candles) here, so other components 
-        # like orderbook, sentiment, mtf might yield 0 score or errors, 
-        # but that's expected if data isn't provided.
         data = {'candles': market_data}
         result = self.calculate_score(data)
         
         score = result['aggregated_score']
         action = "HOLD"
-        
-        # Thresholds
         if score > 0.5:
             action = "BUY"
         elif score < -0.5:
@@ -64,7 +55,5 @@ class ScoringService:
         return {
             "action": action,
             "score": score,
-            "price": float(latest['close']),
-            "timestamp": latest.get('timestamp'),
             "details": result
         }
