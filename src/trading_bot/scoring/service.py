@@ -1,48 +1,70 @@
 import pandas as pd
-import numpy as np
-# import talib # Requires C library
+from typing import Dict, Any, Optional
 from trading_bot.logger import get_logger
-from trading_bot.config import settings
+from trading_bot.scoring.engine import CompositeScoreEngine
+from trading_bot.scoring.components.technical import TechnicalIndicators
+from trading_bot.scoring.components.orderbook import OrderbookImbalance
+from trading_bot.scoring.components.market_structure import MarketStructure
+from trading_bot.scoring.components.sentiment import SentimentAnalysis
+from trading_bot.scoring.components.multi_timeframe import MultiTimeframeAlignment
 
 logger = get_logger(__name__)
 
 class ScoringService:
     def __init__(self):
-        logger.info("Initialized ScoringService")
+        self.engine = CompositeScoreEngine()
+        self._register_default_components()
+        logger.info("Initialized ScoringService with CompositeScoreEngine")
+
+    def _register_default_components(self):
+        self.engine.register_component(TechnicalIndicators(), initial_weight=1.2)
+        self.engine.register_component(OrderbookImbalance(), initial_weight=1.0)
+        self.engine.register_component(MarketStructure(), initial_weight=1.5)
+        self.engine.register_component(SentimentAnalysis(), initial_weight=0.8)
+        self.engine.register_component(MultiTimeframeAlignment(), initial_weight=1.1)
+
+    def calculate_score(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Unified API to calculate composite score.
+        data: Dictionary containing 'candles', 'orderbook', 'sentiment', 'mtf_candles' etc.
+        """
+        return self.engine.calculate_score(data)
+
+    def update_weights(self, signal_context: Dict[str, Any], outcome: float):
+        """
+        Update weights based on realized outcome.
+        outcome: >0 for Win, <0 for Loss
+        """
+        self.engine.update_weights(signal_context, outcome)
 
     def calculate_signals(self, market_data: pd.DataFrame) -> dict:
         """
-        Calculate trading signals based on market data.
+        Adapter for calls passing only market data (e.g. from backtester).
         """
-        # logger.debug("Calculating signals...")
-        if market_data.empty or len(market_data) < 21:
+        if market_data.empty:
             return {"action": "HOLD", "score": 0.0}
+
+        latest = market_data.iloc[-1]
         
-        # Simple Moving Average Crossover Strategy
-        # Use .copy() to avoid SettingWithCopyWarning if a slice is passed
-        df = market_data.copy()
-        df['sma_fast'] = df['close'].rolling(window=5).mean()
-        df['sma_slow'] = df['close'].rolling(window=20).mean()
+        # We only have market_data (candles) here, so other components 
+        # like orderbook, sentiment, mtf might yield 0 score or errors, 
+        # but that's expected if data isn't provided.
+        data = {'candles': market_data}
+        result = self.calculate_score(data)
         
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
-        
+        score = result['aggregated_score']
         action = "HOLD"
-        score = 0.0
         
-        if pd.notna(latest['sma_fast']) and pd.notna(latest['sma_slow']) and \
-           pd.notna(prev['sma_fast']) and pd.notna(prev['sma_slow']):
+        # Thresholds
+        if score > 0.5:
+            action = "BUY"
+        elif score < -0.5:
+            action = "SELL"
             
-            if latest['sma_fast'] > latest['sma_slow'] and prev['sma_fast'] <= prev['sma_slow']:
-                action = "BUY"
-                score = 0.8
-            elif latest['sma_fast'] < latest['sma_slow'] and prev['sma_fast'] >= prev['sma_slow']:
-                action = "SELL"
-                score = -0.8
-        
         return {
-            "action": action, 
-            "score": score, 
+            "action": action,
+            "score": score,
             "price": float(latest['close']),
-            "timestamp": latest.get('timestamp')
+            "timestamp": latest.get('timestamp'),
+            "details": result
         }
