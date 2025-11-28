@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     risk_limit_amount: float = Field(100.0, description="Max amount per trade")
     atr_multiplier: float = Field(2.0, description="Multiplier for ATR stop loss")
     
+    active_timeframes: list[str] = Field(["1h", "4h", "1d"], description="Active timeframes for analysis")
+    
     log_level: str = Field("INFO", description="Logging level")
 
 settings = Settings()

@@ -9,14 +9,14 @@ from .binance import BinanceDataFeed
 logger = get_logger(__name__)
 
 class DataFeedService:
-    def __init__(self):
+    def __init__(self, active_timeframes: Optional[List[str]] = None):
         self.running = False
         self.exchange_id = settings.exchange_id
         self.storage = DataStorage()
         self.feed = None
         # Default symbols and intervals for now.
         self.symbols = ["BTCUSDT", "ETHUSDT"]
-        self.intervals = ["1m", "5m", "15m"]
+        self.intervals = active_timeframes or settings.active_timeframes
         
         if self.exchange_id == "binance":
             self.feed = BinanceDataFeed(

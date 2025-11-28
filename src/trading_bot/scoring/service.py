@@ -11,17 +11,18 @@ from trading_bot.scoring.components.multi_timeframe import MultiTimeframeAlignme
 logger = get_logger(__name__)
 
 class ScoringService:
-    def __init__(self):
+    def __init__(self, active_timeframes: Optional[list] = None):
+        self.active_timeframes = active_timeframes or ['5m', '15m', '1h']
         self.engine = CompositeScoreEngine()
         self._register_default_components()
-        logger.info("Initialized ScoringService with CompositeScoreEngine")
+        logger.info(f"Initialized ScoringService with timeframes: {self.active_timeframes}")
 
     def _register_default_components(self):
         self.engine.register_component(TechnicalIndicators(), initial_weight=1.2)
         self.engine.register_component(OrderbookImbalance(), initial_weight=1.0)
         self.engine.register_component(MarketStructure(), initial_weight=1.5)
         self.engine.register_component(SentimentAnalysis(), initial_weight=0.8)
-        self.engine.register_component(MultiTimeframeAlignment(), initial_weight=1.1)
+        self.engine.register_component(MultiTimeframeAlignment(timeframes=self.active_timeframes), initial_weight=1.1)
 
     def calculate_score(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -38,11 +39,14 @@ class ScoringService:
         self.engine.update_weights(signal_context, outcome)
 
     # Legacy method adapter if needed, but the ticket implies a new design.
-    def calculate_signals(self, market_data: pd.DataFrame) -> dict:
+    def calculate_signals(self, market_data: pd.DataFrame, mtf_data: Optional[Dict[str, pd.DataFrame]] = None) -> dict:
         """
         Adapter for legacy calls passing only market data.
         """
         data = {'candles': market_data}
+        if mtf_data:
+            data['mtf_candles'] = mtf_data
+            
         result = self.calculate_score(data)
         
         score = result['aggregated_score']
