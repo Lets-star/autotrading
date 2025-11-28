@@ -10,4 +10,5 @@ if ! command -v poetry &> /dev/null; then
 fi
 
 echo "Starting Trading Bot Dashboard..."
+export PYTHONPATH="$(pwd)/src:$PYTHONPATH"
 poetry run streamlit run src/trading_bot/app.py
