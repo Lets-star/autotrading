@@ -166,10 +166,11 @@ elif mode == "Backtest Lab":
     
     with st.expander("Configuration", expanded=True):
         with st.form("bt_form"):
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             bt_symbol = c1.text_input("Symbol", selected_symbol)
             bt_interval = c2.selectbox("Interval", ["1m", "5m", "15m", "30m", "1h", "4h", "1d"], index=4)
             bt_limit = c3.slider("History Length (Candles)", 100, 1000, 500)
+            debug_mode = c4.checkbox("Show Debug Logs", value=False)
             
             run_bt = st.form_submit_button("Run Simulation")
             
@@ -180,7 +181,7 @@ elif mode == "Backtest Lab":
                 api_secret=BYBIT_API_SECRET,
                 active_timeframes=st.session_state.active_timeframes
             )
-            results = engine.run(bt_symbol, bt_interval, bt_limit)
+            results = engine.run(bt_symbol, bt_interval, bt_limit, debug=debug_mode)
             
             if "error" in results:
                 st.error(results['error'])
@@ -225,3 +226,12 @@ elif mode == "Backtest Lab":
                     )
                 else:
                     st.warning("No trades were executed with the current strategy.")
+
+                # Debug Logs
+                if debug_mode:
+                    st.subheader("Backtest Debug Logs")
+                    logs = results.get('debug_logs', [])
+                    if logs:
+                        st.text_area("Detailed Logs", "\n".join(logs), height=300)
+                    else:
+                        st.info("No debug logs generated.")
