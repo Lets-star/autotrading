@@ -9,7 +9,6 @@ import time
 st.set_page_config(page_title="Trading Bot Dashboard", layout="wide", page_icon="📈")
 
 # -- Secrets & Config --
-# Try to load from st.secrets, fallback to env vars (settings)
 try:
     BYBIT_API_KEY = st.secrets["bybit"]["api_key"]
     BYBIT_API_SECRET = st.secrets["bybit"]["api_secret"]
@@ -59,7 +58,6 @@ service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET)
 # Update service settings if changed
 if service.symbol != selected_symbol:
     service.symbol = selected_symbol
-    # In a real app we might need to reset data or handle transition
     
 if service.timeframes != selected_timeframes:
     service.timeframes = selected_timeframes
@@ -102,15 +100,83 @@ if mode == "Live Dashboard":
         # Safe access to signal
         score = signal.get('score', 0.0) if signal else 0.0
         action = signal.get('action', 'NEUTRAL') if signal else 'NEUTRAL'
+        details = signal.get('details', {})
         
         col1.metric("Price", f"{latest['close']:.2f}", f"{price_change:.2f}")
         col2.metric("Composite Score", f"{score:.2f}", delta_color="off")
         col3.metric("Action", action, delta_color="normal")
         col4.metric("Risk Status", "Normal", "0.0%")
+        
+        # --- Composite Score Breakdown ---
+        if details:
+            st.markdown("### Composite Score Breakdown")
+            
+            # Prepare data
+            components = details.get('components', {})
+            weights = details.get('weights', {})
+            
+            comp_data = []
+            for name, comp_res in components.items():
+                cat = comp_res.get('category', 'Uncategorized')
+                s_val = comp_res.get('score', 0.0)
+                conf = comp_res.get('confidence', 1.0)
+                w_val = weights.get(name, 1.0)
+                contribution = s_val * w_val * conf
+                
+                comp_data.append({
+                    "Name": name,
+                    "Category": cat,
+                    "Score": s_val,
+                    "Weight": w_val,
+                    "Confidence": conf,
+                    "Contribution": contribution
+                })
+            
+            comp_df = pd.DataFrame(comp_data)
+            
+            if not comp_df.empty:
+                # Top level stats
+                st.caption(f"Aggregated Score: {details.get('aggregated_score', 0.0):.3f}")
+                
+                # Visuals
+                v1, v2 = st.columns([2, 1])
+                with v1:
+                    st.markdown("**Component Scores**")
+                    # Simple bar chart of scores
+                    st.bar_chart(comp_df.set_index("Name")['Score'])
+                    
+                with v2:
+                    st.markdown("**Weights**")
+                    st.bar_chart(comp_df.set_index("Name")['Weight'])
+                
+                # Detailed Grid by Category
+                st.markdown("**Detailed Components**")
+                categories = comp_df['Category'].unique()
+                
+                # Create rows of columns
+                # We'll just iterate and create expanders or columns
+                cat_cols = st.columns(len(categories)) if len(categories) > 0 else [st.container()]
+                
+                for idx, cat in enumerate(categories):
+                    with cat_cols[idx % len(cat_cols)]:
+                        st.info(f"**{cat}**")
+                        cat_df = comp_df[comp_df['Category'] == cat]
+                        for _, row in cat_df.iterrows():
+                            # Render mini-card
+                            score_color = ":green" if row['Score'] > 0 else ":red" if row['Score'] < 0 else ":grey"
+                            st.markdown(f"**{row['Name']}**")
+                            st.markdown(f"Score: {score_color}[{row['Score']:.2f}] | W: {row['Weight']:.1f}")
+                            st.progress(max(0.0, min(1.0, abs(row['Score']))))
+                            st.divider()
+
+            with st.expander("Show Details (Logs & Metadata)"):
+                st.json(details)
+
     else:
         st.warning("Waiting for data...")
     
     # 2. Charts & Order Book
+    st.markdown("---")
     c1, c2 = st.columns([2, 1])
     
     with c1:

@@ -7,6 +7,10 @@ class MultiTimeframeAlignment(ScoringComponent):
         self.timeframes = timeframes
 
     @property
+    def category(self) -> str:
+        return "Multi-timeframe"
+
+    @property
     def name(self) -> str:
         return "multi_timeframe"
 
@@ -23,7 +27,7 @@ class MultiTimeframeAlignment(ScoringComponent):
         mtf_data = data.get('mtf_candles', {})
         
         if not mtf_data:
-            return ComponentScore(score=0.0, confidence=0.0, metadata={"error": "No MTF data"})
+            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No MTF data"})
 
         trends = []
         for tf in self.timeframes:
@@ -32,7 +36,7 @@ class MultiTimeframeAlignment(ScoringComponent):
                 trends.append(self._get_trend(df))
         
         if not trends:
-            return ComponentScore(score=0.0, confidence=0.0)
+            return ComponentScore(score=0.0, confidence=0.0, category=self.category)
 
         # Alignment
         avg_trend = sum(trends) / len(trends)
@@ -43,6 +47,7 @@ class MultiTimeframeAlignment(ScoringComponent):
         return ComponentScore(
             score=avg_trend,
             confidence=agreement,
+            category=self.category,
             metadata={
                 "timeframes": self.timeframes,
                 "trends": trends

@@ -3,6 +3,10 @@ from trading_bot.scoring.base import ScoringComponent, ComponentScore
 
 class SentimentAnalysis(ScoringComponent):
     @property
+    def category(self) -> str:
+        return "Sentiment/Fundamentals"
+
+    @property
     def name(self) -> str:
         return "sentiment"
 
@@ -11,7 +15,7 @@ class SentimentAnalysis(ScoringComponent):
         
         if not sentiment_data:
             # If no sentiment data provided, return neutral
-            return ComponentScore(score=0.0, confidence=0.0, metadata={"status": "no_data"})
+            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"status": "no_data"})
             
         # Expecting sentiment_data to be a dict like {"score": 0.5, "source": "news_api"}
         # Score assumed to be -1 to 1
@@ -24,6 +28,7 @@ class SentimentAnalysis(ScoringComponent):
         return ComponentScore(
             score=score,
             confidence=0.6, # Static confidence for external data
+            category=self.category,
             metadata={
                 "source": source
             }
