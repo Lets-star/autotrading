@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
-from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
-from trading_bot.scoring.service import ScoringService
+from trading_bot.data_feeds.market_data_service import MarketDataService
 import time
 
 st.set_page_config(page_title="Trading Bot Dashboard", layout="wide", page_icon="📈")
@@ -46,46 +45,70 @@ st.session_state.active_timeframes = selected_timeframes
 settings.active_timeframes = selected_timeframes
 
 # -- Services --
-# Initialize services
-fetcher = BybitDataFetcher(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
-scoring = ScoringService(active_timeframes=selected_timeframes)
+@st.cache_resource
+def get_market_service(api_key, api_secret):
+    return MarketDataService(
+        api_key=api_key, 
+        api_secret=api_secret, 
+        symbol="BTCUSDT", 
+        timeframes=["1h", "4h", "1d"]
+    )
+
+service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET)
+
+# Update service settings if changed
+if service.symbol != selected_symbol:
+    service.symbol = selected_symbol
+    # In a real app we might need to reset data or handle transition
+    
+if service.timeframes != selected_timeframes:
+    service.timeframes = selected_timeframes
+    service.scoring.active_timeframes = selected_timeframes
+
+# Start service if not running
+service.start()
 
 if mode == "Live Dashboard":
     st.title(f"Live Dashboard: {selected_symbol}")
     
     # Auto-refresh logic (basic)
-    if st.sidebar.checkbox("Auto-refresh (15s)", value=False):
-        time.sleep(15)
-        st.rerun()
+    auto_refresh = st.sidebar.checkbox("Auto-refresh (1s)", value=False)
+    
+    # Display Status
+    status_col1, status_col2, status_col3 = st.sidebar.columns(3)
+    data = service.get_data()
+    
+    status_col1.metric("Status", data['status'])
+    status_col2.metric("Updates", data['update_count'])
+    
+    if data['last_updated'] > 0:
+        latency = time.time() - data['last_updated']
+        status_col3.metric("Latency", f"{latency:.1f}s")
+    
+    if data['error']:
+        st.sidebar.error(f"Error: {data['error']}")
 
     # 1. Top Metrics Row
     col1, col2, col3, col4 = st.columns(4)
     
-    # Fetch latest data
-    df = fetcher.fetch_history(selected_symbol, "1m", limit=50)
+    df = data.get("price_history", pd.DataFrame())
+    signal = data.get("signal", {})
     
     if not df.empty:
         latest = df.iloc[-1]
         prev = df.iloc[-2]
         price_change = latest['close'] - prev['close']
         
-        # Fetch MTF data for scoring
-        mtf_data = {}
-        for tf in selected_timeframes:
-             # Fetch a small limit, we just need latest for current signal
-             tf_df = fetcher.fetch_history(selected_symbol, tf, limit=50)
-             if not tf_df.empty:
-                 mtf_data[tf] = tf_df
-
-        # Calculate Score
-        signal = scoring.calculate_signals(df, mtf_data=mtf_data)
+        # Safe access to signal
+        score = signal.get('score', 0.0) if signal else 0.0
+        action = signal.get('action', 'NEUTRAL') if signal else 'NEUTRAL'
         
         col1.metric("Price", f"{latest['close']:.2f}", f"{price_change:.2f}")
-        col2.metric("Composite Score", f"{signal['score']:.2f}", delta_color="off")
-        col3.metric("Action", signal['action'], delta_color="normal")
+        col2.metric("Composite Score", f"{score:.2f}", delta_color="off")
+        col3.metric("Action", action, delta_color="normal")
         col4.metric("Risk Status", "Normal", "0.0%")
     else:
-        st.error("Failed to fetch market data.")
+        st.warning("Waiting for data...")
     
     # 2. Charts & Order Book
     c1, c2 = st.columns([2, 1])
@@ -97,7 +120,7 @@ if mode == "Live Dashboard":
             
     with c2:
         st.subheader("Order Book")
-        ob = fetcher.fetch_orderbook(selected_symbol)
+        ob = data.get("orderbook", {})
         if ob:
             bids = pd.DataFrame(ob.get('bids', []), columns=['Price', 'Size'])
             asks = pd.DataFrame(ob.get('asks', []), columns=['Price', 'Size'])
@@ -132,6 +155,11 @@ if mode == "Live Dashboard":
         st.success("Signal sent to start bot daemon.")
     if c_stop.button("🔴 Stop Bot", use_container_width=True):
         st.error("Signal sent to stop bot daemon.")
+        
+    # Auto-refresh at the end
+    if auto_refresh:
+        time.sleep(1)
+        st.rerun()
 
 elif mode == "Backtest Lab":
     st.title("Backtest Lab")
