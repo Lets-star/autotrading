@@ -29,10 +29,26 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("Settings")
 selected_symbol = st.sidebar.text_input("Symbol", "BTCUSDT")
 
+# Timeframe Selector
+if "active_timeframes" not in st.session_state:
+    st.session_state.active_timeframes = ["1h", "4h", "1d"]
+
+available_timeframes = ["5m", "15m", "30m", "1h", "3h", "4h", "1d", "1week"]
+selected_timeframes = st.sidebar.multiselect(
+    "Active Timeframes",
+    available_timeframes,
+    default=st.session_state.active_timeframes,
+    key="timeframe_selector"
+)
+st.session_state.active_timeframes = selected_timeframes
+
+# Update global settings (for this process)
+settings.active_timeframes = selected_timeframes
+
 # -- Services --
 # Initialize services
 fetcher = BybitDataFetcher(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
-scoring = ScoringService()
+scoring = ScoringService(active_timeframes=selected_timeframes)
 
 if mode == "Live Dashboard":
     st.title(f"Live Dashboard: {selected_symbol}")
@@ -53,8 +69,16 @@ if mode == "Live Dashboard":
         prev = df.iloc[-2]
         price_change = latest['close'] - prev['close']
         
+        # Fetch MTF data for scoring
+        mtf_data = {}
+        for tf in selected_timeframes:
+             # Fetch a small limit, we just need latest for current signal
+             tf_df = fetcher.fetch_history(selected_symbol, tf, limit=50)
+             if not tf_df.empty:
+                 mtf_data[tf] = tf_df
+
         # Calculate Score
-        signal = scoring.calculate_signals(df)
+        signal = scoring.calculate_signals(df, mtf_data=mtf_data)
         
         col1.metric("Price", f"{latest['close']:.2f}", f"{price_change:.2f}")
         col2.metric("Composite Score", f"{signal['score']:.2f}", delta_color="off")
@@ -123,7 +147,11 @@ elif mode == "Backtest Lab":
             
     if run_bt:
         with st.spinner(f"Backtesting {bt_symbol} on {bt_interval}..."):
-            engine = BacktestEngine(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET)
+            engine = BacktestEngine(
+                api_key=BYBIT_API_KEY, 
+                api_secret=BYBIT_API_SECRET,
+                active_timeframes=st.session_state.active_timeframes
+            )
             results = engine.run(bt_symbol, bt_interval, bt_limit)
             
             if "error" in results:

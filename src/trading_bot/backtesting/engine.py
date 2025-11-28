@@ -8,14 +8,26 @@ from trading_bot.logger import get_logger
 logger = get_logger(__name__)
 
 class BacktestEngine:
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
-        self.scoring = ScoringService()
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None):
+        self.active_timeframes = active_timeframes or ['1h']
+        self.scoring = ScoringService(active_timeframes=self.active_timeframes)
         self.risk = RiskService()
         self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
         self.trades = []
         self.balance = 10000.0
         self.position = None 
     
+    def _interval_to_timedelta(self, interval: str) -> pd.Timedelta:
+        if interval.endswith('m'):
+            return pd.Timedelta(minutes=int(interval[:-1]))
+        elif interval.endswith('h'):
+            return pd.Timedelta(hours=int(interval[:-1]))
+        elif interval.endswith('d'):
+            return pd.Timedelta(days=int(interval[:-1]))
+        elif interval == '1week':
+             return pd.Timedelta(weeks=1)
+        return pd.Timedelta(minutes=1)
+
     def run(self, symbol: str = "BTCUSDT", interval: str = "1h", limit: int = 500) -> Dict[str, Any]:
         """
         Run the backtest simulation.
@@ -33,6 +45,19 @@ class BacktestEngine:
             return {"error": "No data returned from Bybit"}
             
         logger.info(f"Fetched {len(df)} candles")
+
+        # Fetch data for other active timeframes
+        mtf_data_full = {}
+        mtf_deltas = {}
+        main_delta = self._interval_to_timedelta(interval)
+
+        for tf in self.active_timeframes:
+            if tf == interval:
+                continue
+            tf_df = self.fetcher.fetch_history(symbol, tf, limit)
+            if not tf_df.empty:
+                mtf_data_full[tf] = tf_df
+                mtf_deltas[tf] = self._interval_to_timedelta(tf)
             
         # Iterate
         # Need at least 21 candles for SMA (Scoring Service Requirement)
@@ -42,7 +67,26 @@ class BacktestEngine:
         for i in range(21, len(df)):
             # Window of data up to i
             window = df.iloc[:i+1]
-            signal = self.scoring.calculate_signals(window)
+            
+            # Prepare MTF data
+            current_open_time = window.iloc[-1]['timestamp']
+            current_close_time = current_open_time + main_delta
+            
+            step_mtf_data = {}
+            # Add current timeframe
+            step_mtf_data[interval] = window
+            
+            # Add other timeframes
+            for tf, tf_df in mtf_data_full.items():
+                tf_delta = mtf_deltas[tf]
+                # Filter: Closed candles
+                valid_mask = (tf_df['timestamp'] + tf_delta) <= current_close_time
+                filtered_df = tf_df[valid_mask]
+                
+                if not filtered_df.empty:
+                    step_mtf_data[tf] = filtered_df
+
+            signal = self.scoring.calculate_signals(window, mtf_data=step_mtf_data)
             
             current_price = signal.get('price')
             timestamp = signal.get('timestamp')
