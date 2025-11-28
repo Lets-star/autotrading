@@ -33,15 +33,24 @@ if "active_timeframes" not in st.session_state:
 
 available_timeframes = ["5m", "15m", "30m", "1h", "3h", "4h", "1d", "1week"]
 selected_timeframes = st.sidebar.multiselect(
-    "Active Timeframes",
+    "Active Timeframes (MTF)",
     available_timeframes,
     default=st.session_state.active_timeframes,
     key="timeframe_selector"
 )
 st.session_state.active_timeframes = selected_timeframes
 
+# Primary Timeframe Selector
+primary_timeframe = st.sidebar.selectbox(
+    "Primary Timeframe", 
+    available_timeframes, 
+    index=available_timeframes.index("1h") if "1h" in available_timeframes else 0,
+    key="primary_timeframe_selector"
+)
+
 # Update global settings (for this process)
 settings.active_timeframes = selected_timeframes
+settings.selected_timeframe = primary_timeframe
 
 # -- Services --
 @st.cache_resource
@@ -50,7 +59,8 @@ def get_market_service(api_key, api_secret):
         api_key=api_key, 
         api_secret=api_secret, 
         symbol="BTCUSDT", 
-        timeframes=["1h", "4h", "1d"]
+        timeframes=["1h", "4h", "1d"],
+        selected_timeframe="1h"
     )
 
 service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET)
@@ -63,11 +73,14 @@ if service.timeframes != selected_timeframes:
     service.timeframes = selected_timeframes
     service.scoring.active_timeframes = selected_timeframes
 
+if service.selected_timeframe != primary_timeframe:
+    service.selected_timeframe = primary_timeframe
+
 # Start service if not running
 service.start()
 
 if mode == "Live Dashboard":
-    st.title(f"Live Dashboard: {selected_symbol}")
+    st.title(f"Live Dashboard: {selected_symbol} ({primary_timeframe})")
     
     # Auto-refresh logic (basic)
     auto_refresh = st.sidebar.checkbox("Auto-refresh (1s)", value=False)
@@ -105,7 +118,13 @@ if mode == "Live Dashboard":
         col1.metric("Price", f"{latest['close']:.2f}", f"{price_change:.2f}")
         col2.metric("Composite Score", f"{score:.2f}", delta_color="off")
         col3.metric("Action", action, delta_color="normal")
-        col4.metric("Risk Status", "Normal", "0.0%")
+        
+        risk = data.get("risk_metrics", {})
+        if risk and 'sl' in risk:
+             col4.metric("SL / TP", f"{risk['sl']:.2f} / {risk['tp']:.2f}", f"ATR: {risk['atr']:.2f}")
+        else:
+             atr_val = risk.get('atr', 0.0)
+             col4.metric("Risk Status", "Watching", f"ATR: {atr_val:.2f}" if atr_val > 0 else "")
         
         # --- Composite Score Breakdown ---
         if details:
@@ -234,7 +253,11 @@ elif mode == "Backtest Lab":
         with st.form("bt_form"):
             c1, c2, c3, c4 = st.columns(4)
             bt_symbol = c1.text_input("Symbol", selected_symbol)
-            bt_interval = c2.selectbox("Interval", ["1m", "5m", "15m", "30m", "1h", "4h", "1d"], index=4)
+            
+            bt_opts = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+            def_idx = bt_opts.index(primary_timeframe) if primary_timeframe in bt_opts else 4
+            
+            bt_interval = c2.selectbox("Interval", bt_opts, index=def_idx)
             bt_limit = c3.slider("History Length (Candles)", 100, 1000, 500)
             debug_mode = c4.checkbox("Show Debug Logs", value=False)
             
