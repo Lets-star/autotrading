@@ -18,16 +18,32 @@ src/
     └── app.py         # Streamlit dashboard
 ```
 
-## Setup
-
-This project uses [Poetry](https://python-poetry.org/) for dependency management.
+## Setup and Installation
 
 ### Prerequisites
 
 - Python 3.10+
-- Poetry
+- Poetry (optional, the setup script can install it)
 
-### Installation
+### Quick Start (Recommended)
+
+**Linux/macOS:**
+```bash
+./setup.sh
+```
+
+**Windows:**
+```batch
+setup.bat
+```
+
+These scripts will:
+1. Check for Python and Poetry.
+2. Install Poetry if missing.
+3. Install project dependencies.
+4. Create a `.env` file from `.env.example`.
+
+### Manual Installation
 
 1.  Clone the repository.
 2.  Install dependencies:
@@ -43,13 +59,11 @@ This project uses [Poetry](https://python-poetry.org/) for dependency management
 
 ## Configuration
 
-The project uses `python-dotenv` and `pydantic-settings`. Create a `.env` file in the root directory:
-
-```bash
-cp .env.example .env
-```
+The project uses `python-dotenv` and `pydantic-settings`.
 
 ### Environment Variables
+
+Edit the `.env` file created by the setup script.
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
@@ -74,16 +88,31 @@ The application will fall back to environment variables (`API_KEY`, `API_SECRET`
 
 ## Usage
 
+### Run the Dashboard
+
+**Linux/macOS:**
+```bash
+./run.sh
+```
+or with Make:
+```bash
+make run
+```
+
+**Windows:**
+```batch
+run.bat
+```
+
+**Manual:**
+```bash
+poetry run streamlit run src/trading_bot/app.py
+```
+
 ### Run the Bot (Headless)
 
 ```bash
 poetry run python -m trading_bot.main
-```
-
-### Run the Dashboard
-
-```bash
-poetry run streamlit run src/trading_bot/app.py
 ```
 
 ## Backtesting
@@ -97,6 +126,12 @@ The dashboard now includes a "Backtest Lab" mode.
 
 To run the integration tests:
 
+**Linux/macOS (Make):**
+```bash
+make test
+```
+
+**Manual:**
 ```bash
 poetry run pytest
 ```
