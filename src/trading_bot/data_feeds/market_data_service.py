@@ -4,20 +4,23 @@ import pandas as pd
 from typing import Dict, Any, List, Optional
 from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
 from trading_bot.scoring.service import ScoringService
+from trading_bot.risk.service import RiskService
 from trading_bot.logger import get_logger
 
 logger = get_logger(__name__)
 
 class MarketDataService:
-    def __init__(self, api_key: str, api_secret: str, symbol: str, timeframes: List[str]):
+    def __init__(self, api_key: str, api_secret: str, symbol: str, timeframes: List[str], selected_timeframe: str = "1h"):
         self.api_key = api_key
         self.api_secret = api_secret
         self.symbol = symbol
         self.timeframes = timeframes
+        self.selected_timeframe = selected_timeframe
         
         # Initialize fetcher
         self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
         self.scoring = ScoringService(active_timeframes=timeframes)
+        self.risk = RiskService()
         
         self._data_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -28,6 +31,7 @@ class MarketDataService:
             "mtf_data": {},
             "orderbook": {},
             "signal": {},
+            "risk_metrics": {},
             "last_updated": 0,
             "update_count": 0,
             "status": "Disconnected",
@@ -60,18 +64,26 @@ class MarketDataService:
                 # But here we rely on the fetcher. 
                 # TODO: Ensure fetcher has timeouts.
                 
-                # Fetch history (1m)
-                df = self.fetcher.fetch_history(self.symbol, "1m", limit=50)
+                # Fetch history (Selected TF)
+                current_tf = self.selected_timeframe
+                logger.debug(f"Fetching data for timeframe: {current_tf}")
+                
+                df = self.fetcher.fetch_history(self.symbol, current_tf, limit=100)
                 
                 if df.empty:
                      # If data is empty, maybe connection issue
-                     # But we don't want to spam errors if it's just one missed call
                      pass
 
                 # Fetch MTF
                 mtf_data = {}
                 for tf in self.timeframes:
-                     tf_df = self.fetcher.fetch_history(self.symbol, tf, limit=50)
+                     # Skip if same as current_tf to avoid duplicate fetch?
+                     # But maybe we want it in mtf_data too.
+                     if tf == current_tf:
+                         mtf_data[tf] = df
+                         continue
+                         
+                     tf_df = self.fetcher.fetch_history(self.symbol, tf, limit=100)
                      if not tf_df.empty:
                          mtf_data[tf] = tf_df
                 
@@ -80,9 +92,36 @@ class MarketDataService:
                 
                 # Calculate Signals
                 signal = {}
+                risk_metrics = {}
                 if not df.empty:
                     # signal keys: 'score', 'action'
                     signal = self.scoring.calculate_signals(df, mtf_data=mtf_data)
+                    
+                    # Calculate Risk Metrics
+                    current_price = df.iloc[-1]['close']
+                    details = signal.get('details', {})
+                    components = details.get('components', {})
+                    atr_comp = components.get('technical_atr', {})
+                    atr_val = atr_comp.get('metadata', {}).get('value', 0.0)
+                    
+                    if atr_val > 0:
+                        risk_metrics['atr'] = atr_val
+                        action = signal.get('action', 'NEUTRAL')
+                        
+                        # Default SL logic using RiskService
+                        # RiskService only supports LONG logic by default, so we adapt here
+                        sl_long = self.risk.calculate_stop_loss(current_price, atr_val)
+                        sl_short = current_price + (atr_val * self.risk.atr_multiplier)
+                        
+                        if action == 'BUY':
+                            risk_metrics['sl'] = sl_long
+                            risk_metrics['tp'] = current_price + (current_price - sl_long) * 1.5 
+                        elif action == 'SELL':
+                            risk_metrics['sl'] = sl_short
+                            risk_metrics['tp'] = current_price - (sl_short - current_price) * 1.5
+                        else:
+                            # Show levels for both? or just ATR
+                            pass
                 
                 # Update State
                 with self._data_lock:
@@ -90,6 +129,7 @@ class MarketDataService:
                     self.data["mtf_data"] = mtf_data
                     self.data["orderbook"] = ob
                     self.data["signal"] = signal
+                    self.data["risk_metrics"] = risk_metrics
                     self.data["last_updated"] = time.time()
                     self.data["update_count"] += 1
                     self.data["status"] = "Connected"
