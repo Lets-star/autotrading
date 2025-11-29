@@ -19,20 +19,24 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Check for poetry
-if ! command -v poetry &> /dev/null; then
-    print_warning "Poetry not found. Attempting to install..."
-    if command -v curl &> /dev/null; then
-        curl -sSL https://install.python-poetry.org | python3 -
-        export PATH="$HOME/.local/bin:$PATH"
-    else
-        print_error "curl not found. Please install Poetry manually."
+# Create venv
+if [ ! -d "venv" ]; then
+    print_msg "Creating virtual environment (venv)..."
+    python3 -m venv venv
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create virtual environment."
         exit 1
     fi
+else
+    print_msg "Virtual environment already exists."
 fi
 
-print_msg "Installing dependencies with Poetry..."
-poetry install
+# Activate venv
+source venv/bin/activate
+
+print_msg "Installing dependencies from requirements.txt..."
+pip install --upgrade pip
+pip install -r requirements.txt
 
 if [ $? -ne 0 ]; then
     print_error "Failed to install dependencies."
@@ -57,9 +61,7 @@ chmod +x run.sh
 
 # Instructions
 print_msg "Setup completed successfully!"
-print_msg "Note: If you just installed Poetry, you may need to restart your shell or add ~/.local/bin to your PATH to use 'poetry' command manually."
 print_msg "IMPORTANT: Please edit the .env file to add your API keys:"
 echo "  - API_KEY"
 echo "  - API_SECRET"
-print_msg "Or create .streamlit/secrets.toml for Streamlit-specific secrets."
 print_msg "To run the application: ./run.sh"
