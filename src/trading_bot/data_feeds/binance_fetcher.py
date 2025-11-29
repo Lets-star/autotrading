@@ -34,6 +34,16 @@ class BinanceDataFetcher:
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
 
+    def fetch_orderbook(self, symbol: str, limit: int = 10) -> Dict[str, Any]:
+        """
+        Fetch current order book for a symbol.
+        """
+        try:
+            return self.client.get_order_book(symbol=symbol, limit=limit)
+        except Exception as e:
+            logger.error(f"Error fetching orderbook from Binance: {e}")
+            return {}
+
     def fetch_history(self, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
         """
         Fetch historical kline data from Binance with retry logic and caching.

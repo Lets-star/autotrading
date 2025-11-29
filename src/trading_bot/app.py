@@ -7,6 +7,7 @@ import time
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.data_feeds.market_data_service import MarketDataService
+from trading_bot.ui.charting import plot_candle_chart
 
 # -- Constants & Helpers --
 PRESETS_FILE = "presets.json"
@@ -348,7 +349,9 @@ if mode == "Live Dashboard":
     with c1:
         st.subheader("Price History")
         if not df.empty:
-            st.line_chart(df.set_index("timestamp")["close"])
+            risk_metrics = data.get("risk_metrics", {})
+            fig = plot_candle_chart(df, active_risk=risk_metrics, title=f"{selected_symbol} {primary_timeframe}")
+            st.plotly_chart(fig, use_container_width=True)
             
     with c2:
         st.subheader("Order Book")
@@ -452,6 +455,12 @@ elif mode == "Backtest Lab":
                 trades_data = results.get('trades', [])
                 trades_df = pd.DataFrame(trades_data)
                 
+                st.subheader("Price Chart with Signals")
+                bt_data = results.get('data', pd.DataFrame())
+                if not bt_data.empty:
+                     fig_bt = plot_candle_chart(bt_data, trades=trades_data, title=f"Backtest: {bt_symbol} {bt_interval}")
+                     st.plotly_chart(fig_bt, use_container_width=True)
+
                 st.subheader("Equity Curve")
                 equity_curve = results.get('equity_curve', [])
                 if equity_curve:
