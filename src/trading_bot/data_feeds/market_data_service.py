@@ -2,7 +2,7 @@ import threading
 import time
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
+from trading_bot.data_feeds.binance_fetcher import BinanceDataFetcher
 from trading_bot.scoring.service import ScoringService
 from trading_bot.risk.service import RiskService
 from trading_bot.logger import get_logger
@@ -18,7 +18,7 @@ class MarketDataService:
         self.selected_timeframe = selected_timeframe
         
         # Initialize fetcher
-        self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
+        self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
         self.scoring = ScoringService(active_timeframes=timeframes)
         self.risk = RiskService()
         
@@ -68,7 +68,7 @@ class MarketDataService:
                 current_tf = self.selected_timeframe
                 logger.debug(f"Fetching data for timeframe: {current_tf}")
                 
-                df = self.fetcher.fetch_history(self.symbol, current_tf, limit=100)
+                df = self.fetcher.fetch_history(self.symbol, current_tf, limit=500)
                 
                 if df.empty:
                      # If data is empty, maybe connection issue
@@ -83,7 +83,7 @@ class MarketDataService:
                          mtf_data[tf] = df
                          continue
                          
-                     tf_df = self.fetcher.fetch_history(self.symbol, tf, limit=100)
+                     tf_df = self.fetcher.fetch_history(self.symbol, tf, limit=500)
                      if not tf_df.empty:
                          mtf_data[tf] = tf_df
                 
