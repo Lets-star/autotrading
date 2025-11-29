@@ -5,7 +5,7 @@ from trading_bot.backtesting.engine import BacktestEngine
 
 @pytest.fixture
 def mock_data_fetcher():
-    with patch('trading_bot.backtesting.engine.BybitDataFetcher') as MockFetcher:
+    with patch('trading_bot.backtesting.engine.BinanceDataFetcher') as MockFetcher:
         fetcher_instance = MockFetcher.return_value
         
         # Create dummy dataframe
@@ -42,7 +42,7 @@ def test_backtest_with_trades():
     }
     df = pd.DataFrame(data)
     
-    with patch('trading_bot.backtesting.engine.BybitDataFetcher') as MockFetcher:
+    with patch('trading_bot.backtesting.engine.BinanceDataFetcher') as MockFetcher:
         fetcher_instance = MockFetcher.return_value
         fetcher_instance.fetch_history.return_value = df
         
