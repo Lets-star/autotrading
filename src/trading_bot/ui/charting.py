@@ -113,14 +113,8 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
         
     df = calculate_indicators(df)
     
-    # Create subplots: 1. Main Chart (Candles + Indicators), 2. Volume
-    fig = make_subplots(
-        rows=2, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.05, 
-        subplot_titles=(title, 'Volume'),
-        row_heights=[0.8, 0.2]
-    )
+    # Main Chart (Candles + Indicators)
+    fig = go.Figure()
     
     # Candlestick
     fig.add_trace(go.Candlestick(
@@ -130,11 +124,11 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
         low=df['low'],
         close=df['close'],
         name='OHLC'
-    ), row=1, col=1)
+    ))
     
     # MAs
-    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['MA20'], line=dict(color='orange', width=1), name='MA 20'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['MA50'], line=dict(color='blue', width=1), name='MA 50'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['MA20'], line=dict(color='orange', width=1), name='MA 20'))
+    fig.add_trace(go.Scatter(x=df['timestamp'], y=df['MA50'], line=dict(color='blue', width=1), name='MA 50'))
     
     # Bollinger Bands
     # Upper
@@ -142,14 +136,14 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
         x=df['timestamp'], y=df['BB_upper'], 
         line=dict(color='rgba(128,128,128,0.5)', width=1, dash='dot'), 
         name='BB Upper', showlegend=False
-    ), row=1, col=1)
+    ))
     # Lower
     fig.add_trace(go.Scatter(
         x=df['timestamp'], y=df['BB_lower'], 
         line=dict(color='rgba(128,128,128,0.5)', width=1, dash='dot'), 
         fill='tonexty', fillcolor='rgba(128,128,128,0.1)',
         name='Bollinger Bands'
-    ), row=1, col=1)
+    ))
     
     # SuperTrend (ATR Channels)
     # Plot TrendUp (Green Line) where trend is 1
@@ -165,21 +159,13 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
     fig.add_trace(go.Scatter(
         x=st_up['timestamp'], y=st_up['ST_lower'], 
         line=dict(color='green', width=2), name='SuperTrend Up'
-    ), row=1, col=1)
+    ))
     
     fig.add_trace(go.Scatter(
         x=st_down['timestamp'], y=st_down['ST_upper'], 
         line=dict(color='red', width=2), name='SuperTrend Down'
-    ), row=1, col=1)
+    ))
 
-    # Volume
-    # Color volume bars based on price change
-    colors = ['green' if r['close'] >= r['open'] else 'red' for i, r in df.iterrows()]
-    fig.add_trace(go.Bar(
-        x=df['timestamp'], y=df['volume'], 
-        marker_color=colors, name='Volume'
-    ), row=2, col=1)
-    
     # Add Trades if provided
     if trades:
         # Separate Long and Short Entries/Exits
@@ -203,7 +189,7 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
                 x=le_df['t'], y=le_df['p'],
                 mode='markers', marker=dict(symbol='triangle-up', size=12, color='green', line=dict(width=1, color='black')),
                 name='Long Entry'
-            ), row=1, col=1)
+            ))
             
         if short_entries:
             se_df = pd.DataFrame(short_entries)
@@ -211,7 +197,7 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
                 x=se_df['t'], y=se_df['p'],
                 mode='markers', marker=dict(symbol='triangle-down', size=12, color='red', line=dict(width=1, color='black')),
                 name='Short Entry'
-            ), row=1, col=1)
+            ))
             
         # Plot Exits
         if long_exits:
@@ -223,7 +209,7 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
                 mode='markers', marker=dict(symbol='x', size=8, color='black'),
                 name='Long Exit',
                 hovertext=[f"PnL: {x['pnl']:.2f}" for x in long_exits]
-            ), row=1, col=1)
+            ))
             
         if short_exits:
             sx_df = pd.DataFrame(short_exits)
@@ -232,13 +218,11 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
                 mode='markers', marker=dict(symbol='x', size=8, color='black'),
                 name='Short Exit',
                 hovertext=[f"PnL: {x['pnl']:.2f}" for x in short_exits]
-            ), row=1, col=1)
+            ))
             
     # Active Risk Levels (TP/SL) for Live Dashboard
     if active_risk:
-        current_time = df['timestamp'].iloc[-1]
-        # Extend line a bit back or across whole chart? 
-        # Usually horizontal line across recent history or whole chart is fine.
+        # current_time = df['timestamp'].iloc[-1]
         
         if 'sl' in active_risk:
             fig.add_hline(y=active_risk['sl'], line_dash="dash", line_color="red", annotation_text="SL", annotation_position="top right")
@@ -247,11 +231,45 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
     
     # Layout adjustments
     fig.update_layout(
+        title=title,
         xaxis_rangeslider_visible=False, 
         height=height,
         hovermode='x unified',
         template='plotly_dark', # Use dark theme as it usually looks better for trading
         margin=dict(l=10, r=10, t=30, b=10)
+    )
+    
+    return fig
+
+def plot_volume_chart(df: pd.DataFrame, height: int = 200) -> go.Figure:
+    """
+    Create a separate Plotly volume chart.
+    """
+    if df.empty:
+        return go.Figure()
+
+    # Ensure float
+    df = df.copy()
+    df['open'] = df['open'].astype(float)
+    df['close'] = df['close'].astype(float)
+    df['volume'] = df['volume'].astype(float)
+
+    fig = go.Figure()
+
+    # Color volume bars based on price change
+    colors = ['green' if r['close'] >= r['open'] else 'red' for i, r in df.iterrows()]
+    fig.add_trace(go.Bar(
+        x=df['timestamp'], y=df['volume'], 
+        marker_color=colors, name='Volume'
+    ))
+
+    fig.update_layout(
+        title="Volume",
+        height=height,
+        hovermode='x unified',
+        template='plotly_dark',
+        margin=dict(l=10, r=10, t=30, b=10),
+        yaxis=dict(title='Volume')
     )
     
     return fig
