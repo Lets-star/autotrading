@@ -1,10 +1,30 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import json
+import os
+import time
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.data_feeds.market_data_service import MarketDataService
-import time
+
+# -- Constants & Helpers --
+PRESETS_FILE = "presets.json"
+
+def load_presets():
+    if os.path.exists(PRESETS_FILE):
+        try:
+            with open(PRESETS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_preset(name, data):
+    presets = load_presets()
+    presets[name] = data
+    with open(PRESETS_FILE, 'w') as f:
+        json.dump(presets, f, indent=4)
 
 st.set_page_config(page_title="Trading Bot Dashboard", layout="wide", page_icon="📈")
 
@@ -18,6 +38,19 @@ except:
 
 if not BYBIT_API_KEY:
     st.sidebar.warning("No API Key found. Using public endpoints only where possible.")
+
+# -- Services --
+@st.cache_resource
+def get_market_service(api_key, api_secret):
+    return MarketDataService(
+        api_key=api_key, 
+        api_secret=api_secret, 
+        symbol="BTCUSDT", 
+        timeframes=["1h", "4h", "1d"],
+        selected_timeframe="1h"
+    )
+
+service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET)
 
 # -- Sidebar Controls --
 st.sidebar.title("🤖 Bot Control")
@@ -51,22 +84,6 @@ primary_timeframe = st.sidebar.selectbox(
     key="selected_timeframe"
 )
 
-# Global settings for config only
-
-
-# -- Services --
-@st.cache_resource
-def get_market_service(api_key, api_secret):
-    return MarketDataService(
-        api_key=api_key, 
-        api_secret=api_secret, 
-        symbol="BTCUSDT", 
-        timeframes=["1h", "4h", "1d"],
-        selected_timeframe="1h"
-    )
-
-service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET)
-
 # Update service settings if changed
 if service.symbol != selected_symbol:
     service.symbol = selected_symbol
@@ -77,6 +94,127 @@ if service.timeframes != selected_timeframes:
 
 if service.selected_timeframe != primary_timeframe:
     service.selected_timeframe = primary_timeframe
+
+# -- Advanced Configuration (New) --
+st.sidebar.markdown("---")
+st.sidebar.subheader("Advanced Configuration")
+
+presets = load_presets()
+preset_names = ["Default"] + list(presets.keys())
+
+# Preset Loader
+c_p1, c_p2 = st.sidebar.columns([3, 1])
+selected_preset = c_p1.selectbox("Preset", preset_names, label_visibility="collapsed")
+if c_p2.button("Load"):
+    if selected_preset != "Default":
+        data = presets[selected_preset]
+        for k, v in data.items():
+            st.session_state[k] = v
+        st.success(f"Loaded!")
+        time.sleep(0.5)
+        st.rerun()
+
+# Configuration Tabs
+tab_weights, tab_signal, tab_risk = st.sidebar.tabs(["Weights", "Signal", "Risk"])
+
+with tab_weights:
+    st.markdown("**Group Weights**")
+    w_tech = st.slider("Technical", 0.0, 1.0, 0.2, key="w_tech")
+    w_ob = st.slider("Orderbook", 0.0, 1.0, 0.2, key="w_ob")
+    w_ms = st.slider("Structure", 0.0, 1.0, 0.2, key="w_ms")
+    w_sent = st.slider("Sentiment", 0.0, 1.0, 0.2, key="w_sent")
+    w_mtf = st.slider("MTF Align", 0.0, 1.0, 0.2, key="w_mtf")
+    
+    # Normalize Group Weights
+    total_w = w_tech + w_ob + w_ms + w_sent + w_mtf
+    if total_w == 0: total_w = 1.0
+    
+    st.caption(f"Norm: T:{w_tech/total_w:.2f} O:{w_ob/total_w:.2f} S:{w_ms/total_w:.2f} Sent:{w_sent/total_w:.2f} MTF:{w_mtf/total_w:.2f}")
+
+    st.markdown("**Technical Sub-weights**")
+    sw_rsi = st.slider("RSI", 0.0, 1.0, 0.2, key="sw_rsi")
+    sw_macd = st.slider("MACD", 0.0, 1.0, 0.2, key="sw_macd")
+    sw_atr = st.slider("ATR", 0.0, 1.0, 0.2, key="sw_atr")
+    sw_bb = st.slider("Bollinger", 0.0, 1.0, 0.2, key="sw_bb")
+    sw_div = st.slider("Divergences", 0.0, 1.0, 0.2, key="sw_div")
+
+    total_sw = sw_rsi + sw_macd + sw_atr + sw_bb + sw_div
+    if total_sw == 0: total_sw = 1.0
+
+with tab_signal:
+    st.markdown("**Signal Thresholds**")
+    sig_long = st.slider("Long Threshold", 0.5, 1.0, 0.6, key="sig_long")
+    sig_short = st.slider("Short Threshold", 0.0, 0.5, 0.4, key="sig_short")
+    sig_conf = st.slider("Confidence Min", 0.0, 1.0, 0.5, key="sig_conf")
+    
+    st.markdown("**Calibration Targets**")
+    target_wr = st.slider("Win Rate Target %", 30, 90, 60, key="target_wr")
+    target_dd = st.slider("Max Drawdown %", 5, 50, 20, key="target_dd")
+
+with tab_risk:
+    st.markdown("**Risk Parameters**")
+    risk_pos = st.slider("Max Position ($)", 10.0, 10000.0, 100.0, key="risk_pos")
+    risk_pct = st.slider("Risk per Trade %", 0.1, 5.0, 1.0, key="risk_pct")
+    leverage = st.slider("Leverage", 1, 20, 1, key="risk_lev")
+    
+    st.markdown("**TP/SL Multipliers**")
+    sl_mult = st.slider("SL (xATR)", 0.5, 5.0, 2.0, key="risk_sl_mult")
+    tp1 = st.slider("TP1 (xSL)", 1.0, 5.0, 1.5, key="risk_tp1")
+    tp2 = st.slider("TP2 (xSL)", 1.0, 10.0, 3.0, key="risk_tp2")
+    tp3 = st.slider("TP3 (xSL)", 1.0, 20.0, 5.0, key="risk_tp3")
+
+with st.sidebar.expander("Save Preset"):
+    new_preset_name = st.text_input("Name", key="new_preset_name")
+    if st.button("Save Preset"):
+        if new_preset_name:
+            current_settings = {
+                "w_tech": w_tech, "w_ob": w_ob, "w_ms": w_ms, "w_sent": w_sent, "w_mtf": w_mtf,
+                "sw_rsi": sw_rsi, "sw_macd": sw_macd, "sw_atr": sw_atr, "sw_bb": sw_bb, "sw_div": sw_div,
+                "sig_long": sig_long, "sig_short": sig_short, "sig_conf": sig_conf, 
+                "target_wr": target_wr, "target_dd": target_dd,
+                "risk_pos": risk_pos, "risk_pct": risk_pct, "risk_lev": leverage, 
+                "risk_sl_mult": sl_mult, "risk_tp1": tp1, "risk_tp2": tp2, "risk_tp3": tp3
+            }
+            save_preset(new_preset_name, current_settings)
+            st.success(f"Saved {new_preset_name}")
+            time.sleep(0.5)
+            st.rerun()
+
+if st.sidebar.button("Reset to Defaults"):
+    # Clear keys from session state
+    keys = ["w_tech", "w_ob", "w_ms", "w_sent", "w_mtf", "sw_rsi", "sw_macd", "sw_atr", "sw_bb", "sw_div",
+            "sig_long", "sig_short", "sig_conf", "target_wr", "target_dd", 
+            "risk_pos", "risk_pct", "risk_lev", "risk_sl_mult", "risk_tp1", "risk_tp2", "risk_tp3"]
+    for k in keys:
+        if k in st.session_state:
+            del st.session_state[k]
+    st.rerun()
+
+# Apply Settings to Service
+g_weights = {
+    'Technical': w_tech/total_w,
+    'Orderbook': w_ob/total_w,
+    'MarketStructure': w_ms/total_w,
+    'Sentiment': w_sent/total_w,
+    'MultiTimeframe': w_mtf/total_w
+}
+s_weights = {
+    'technical_rsi': sw_rsi/total_sw,
+    'technical_macd': sw_macd/total_sw,
+    'technical_atr': sw_atr/total_sw,
+    'technical_bb': sw_bb/total_sw,
+    'technical_divergences': sw_div/total_sw
+}
+
+service.scoring.update_weights_from_groups(g_weights, s_weights)
+service.scoring.update_signal_parameters(sig_long, sig_short, sig_conf)
+service.risk.update_parameters(
+    max_pos_size=risk_pos,
+    max_risk_pct=risk_pct/100.0,
+    leverage=leverage,
+    tp_mults=[tp1, tp2, tp3],
+    sl_mult=sl_mult
+)
 
 # Start service if not running
 service.start()
@@ -279,6 +417,18 @@ elif mode == "Backtest Lab":
                 api_secret=BYBIT_API_SECRET,
                 active_timeframes=st.session_state.active_timeframes
             )
+            
+            # Apply UI Settings to Backtest Engine
+            engine.scoring.update_weights_from_groups(g_weights, s_weights)
+            engine.scoring.update_signal_parameters(sig_long, sig_short, sig_conf)
+            engine.risk.update_parameters(
+                max_pos_size=risk_pos,
+                max_risk_pct=risk_pct/100.0,
+                leverage=leverage,
+                tp_mults=[tp1, tp2, tp3],
+                sl_mult=sl_mult
+            )
+            
             results = engine.run(bt_symbol, bt_interval, bt_limit, debug=debug_mode)
             
             if "error" in results:
