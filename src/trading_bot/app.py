@@ -25,11 +25,14 @@ mode = st.sidebar.radio("Operation Mode", ["Live Dashboard", "Backtest Lab"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Settings")
-selected_symbol = st.sidebar.text_input("Symbol", "BTCUSDT")
+selected_symbol = st.sidebar.text_input("Symbol", "BTCUSDT", key="selected_pair")
 
 # Timeframe Selector
 if "active_timeframes" not in st.session_state:
     st.session_state.active_timeframes = ["1h", "4h", "1d"]
+
+if "selected_timeframe" not in st.session_state:
+    st.session_state.selected_timeframe = "1h"
 
 available_timeframes = ["5m", "15m", "30m", "1h", "3h", "4h", "1d", "1week"]
 selected_timeframes = st.sidebar.multiselect(
@@ -45,12 +48,11 @@ primary_timeframe = st.sidebar.selectbox(
     "Primary Timeframe", 
     available_timeframes, 
     index=available_timeframes.index("1h") if "1h" in available_timeframes else 0,
-    key="primary_timeframe_selector"
+    key="selected_timeframe"
 )
 
-# Update global settings (for this process)
-settings.active_timeframes = selected_timeframes
-settings.selected_timeframe = primary_timeframe
+# Global settings for config only
+
 
 # -- Services --
 @st.cache_resource
