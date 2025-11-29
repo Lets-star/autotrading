@@ -2,9 +2,9 @@ import unittest
 import pandas as pd
 import numpy as np
 from trading_bot.scoring.service import ScoringService
-from trading_bot.scoring.components.technical import TechnicalIndicators
-from trading_bot.scoring.components.orderbook import OrderbookImbalance
-from trading_bot.scoring.components.market_structure import MarketStructure
+from trading_bot.scoring.components.technical import RSI
+from trading_bot.scoring.components.orderbook import OrderImbalance
+from trading_bot.scoring.components.market_structure import HighsLows
 
 class TestScoringEngine(unittest.TestCase):
     def setUp(self):
@@ -27,23 +27,22 @@ class TestScoringEngine(unittest.TestCase):
             'asks': [[101.0, 1.0], [102.0, 0.5]]
         }
 
-    def test_technical_indicators(self):
-        component = TechnicalIndicators(rsi_period=14)
+    def test_technical_indicators_rsi(self):
+        component = RSI(period=14)
         # Create a trend to force a signal
-        # Upward trend
+        # Upward trend -> High RSI
         df = self.sample_market_data.copy()
         for i in range(1, 100):
-            df.iloc[i, df.columns.get_loc('close')] = df.iloc[i-1, df.columns.get_loc('close')] * 1.01
+            df.iloc[i, df.columns.get_loc('close')] = df.iloc[i-1, df.columns.get_loc('close')] * 1.05
             
         data = {'candles': df}
         result = component.calculate(data)
         
-        self.assertIn('rsi', result.metadata)
-        self.assertIn('ema_short', result.metadata)
-        self.assertTrue(-1.0 <= result.score <= 1.0)
+        self.assertIn('value', result.metadata)
+        self.assertTrue(0.0 <= result.score <= 1.0)
 
     def test_orderbook_imbalance(self):
-        component = OrderbookImbalance()
+        component = OrderImbalance()
         data = {'orderbook': self.sample_orderbook}
         result = component.calculate(data)
         
@@ -51,16 +50,18 @@ class TestScoringEngine(unittest.TestCase):
         # Asks: 1 + 0.5 = 1.5
         # Total: 4.5
         # Imbalance: (3 - 1.5) / 4.5 = 1.5 / 4.5 = 0.333
+        # Score: (0.333 + 1) / 2 = 0.666
         
-        self.assertTrue(result.score > 0) # Bullish
+        self.assertTrue(result.score > 0.5) # Bullish
         self.assertAlmostEqual(result.metadata['imbalance'], 0.333, delta=0.01)
+        self.assertAlmostEqual(result.score, 0.666, delta=0.01)
 
     def test_market_structure(self):
-        component = MarketStructure(window=2)
+        component = HighsLows(window=2)
         
         data = {'candles': self.sample_market_data}
         result = component.calculate(data)
-        self.assertTrue(-1.0 <= result.score <= 1.0)
+        self.assertTrue(0.0 <= result.score <= 1.0)
         self.assertIn('trend', result.metadata)
 
     def test_composite_scoring_engine(self):
@@ -84,18 +85,21 @@ class TestScoringEngine(unittest.TestCase):
         
         result = service.calculate_score(data)
         
-        self.assertTrue(result['aggregated_score'] > 0) # Should be bullish overall
-        self.assertIn('technical_indicators', result['components'])
-        self.assertIn('orderbook_imbalance', result['components'])
+        # Sentiment 0.8 -> (0.8+1)/2 = 0.9 (Strong Buy)
+        # MTF -> Upward trend -> 1 -> (1+1)/2 = 1.0
+        
+        self.assertTrue(result['aggregated_score'] > 0.5) # Should be bullish overall
+        self.assertIn('technical_rsi', result['components'])
+        self.assertIn('ob_imbalance', result['components'])
 
     def test_adaptive_weighting(self):
         service = ScoringService()
         engine = service.engine
         
-        component_name = 'technical_indicators'
+        component_name = 'technical_rsi'
         initial_weight = engine.weights[component_name]
         
-        # Simulate a calculation where technicals gave a POSITIVE score
+        # Simulate a calculation where technicals gave a POSITIVE score (Buy)
         fake_signal_context = {
             "components": {
                 component_name: {"score": 1.0, "confidence": 1.0}
@@ -113,5 +117,3 @@ class TestScoringEngine(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-

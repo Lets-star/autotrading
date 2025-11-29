@@ -14,13 +14,13 @@ class OrderImbalance(OrderbookComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         orderbook = data.get('orderbook')
         if not orderbook:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No orderbook data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No orderbook data"})
 
         bids = orderbook.get('bids', [])
         asks = orderbook.get('asks', [])
 
         if not bids or not asks:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category)
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category)
 
         # Calculate volume imbalance for top N levels
         depth = 10
@@ -29,12 +29,14 @@ class OrderImbalance(OrderbookComponent):
         
         total_vol = bid_vol + ask_vol
         if total_vol == 0:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category)
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category)
             
         imbalance = (bid_vol - ask_vol) / total_vol
+        # Normalize -1..1 to 0..1
+        score = (imbalance + 1) / 2
         
         return ComponentScore(
-            score=imbalance,
+            score=score,
             confidence=0.7,
             category=self.category,
             metadata={
@@ -52,7 +54,7 @@ class Liquidity(OrderbookComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         orderbook = data.get('orderbook')
         if not orderbook:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No data"})
 
         bids = orderbook.get('bids', [])
         asks = orderbook.get('asks', [])
@@ -68,7 +70,7 @@ class Liquidity(OrderbookComponent):
         # High liquidity might mean higher confidence in price stability or harder to move price.
         
         return ComponentScore(
-            score=0.0, 
+            score=0.5, 
             confidence=0.5,
             category=self.category,
             metadata={"liquidity": total_liquidity}
@@ -82,7 +84,7 @@ class SmartMoney(OrderbookComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         # Placeholder for Smart Money Tracking (e.g. large orders)
         return ComponentScore(
-            score=0.0,
+            score=0.5,
             confidence=0.1,
             category=self.category,
             metadata={"info": "Not implemented"}
@@ -96,7 +98,7 @@ class MarketMaker(OrderbookComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         # Placeholder for MM activity
         return ComponentScore(
-            score=0.0,
+            score=0.5,
             confidence=0.1,
             category=self.category,
             metadata={"info": "Not implemented"}

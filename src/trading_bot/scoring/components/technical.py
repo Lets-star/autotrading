@@ -26,14 +26,18 @@ class RSI(TechnicalComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         df = data.get('candles')
         if df is None or df.empty:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No data"})
 
         rsi = self._calculate(df['close'])
         current_rsi = rsi.iloc[-1]
         
-        score = 0.0
+        # Mean Reversion Logic:
+        # RSI > 70 -> Overbought -> Expect Drop -> Sell -> Score 0.0
+        # RSI < 30 -> Oversold -> Expect Rise -> Buy -> Score 1.0
+        
+        score = 0.5
         if current_rsi > 70:
-            score = -1.0 # Overbought
+            score = 0.0 # Overbought
         elif current_rsi < 30:
             score = 1.0 # Oversold
             
@@ -57,7 +61,7 @@ class MACD(TechnicalComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         df = data.get('candles')
         if df is None or df.empty:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No data"})
         
         close = df['close']
         ema_fast = close.ewm(span=self.fast, adjust=False).mean()
@@ -69,16 +73,16 @@ class MACD(TechnicalComponent):
         current_hist = hist.iloc[-1]
         prev_hist = hist.iloc[-2] if len(hist) > 1 else 0
         
-        score = 0.0
+        score = 0.5
         # Histogram crossing above 0 -> Bullish
         if current_hist > 0:
-            score = 0.5
+            score = 0.75
             if current_hist > prev_hist: # Expanding bullish momentum
                 score = 1.0
         else:
-            score = -0.5
+            score = 0.25
             if current_hist < prev_hist: # Expanding bearish momentum
-                score = -1.0
+                score = 0.0
                 
         return ComponentScore(
             score=score,
@@ -98,7 +102,7 @@ class ATR(TechnicalComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         df = data.get('candles')
         if df is None or df.empty:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No data"})
             
         high = df['high']
         low = df['low']
@@ -114,10 +118,10 @@ class ATR(TechnicalComponent):
         
         # ATR itself is not directional, but low ATR might precede a move (squeeze)
         # For scoring, we might treat it neutrally or use it for confidence.
-        # Here we'll return 0 score but high confidence if ATR is populated.
+        # Here we'll return 0.5 score (neutral) but high confidence if ATR is populated.
         
         return ComponentScore(
-            score=0.0,
+            score=0.5,
             confidence=0.5,
             category=self.category,
             metadata={"value": current_atr}
@@ -135,7 +139,7 @@ class BollingerBands(TechnicalComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         df = data.get('candles')
         if df is None or df.empty:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No data"})
         
         close = df['close']
         sma = close.rolling(window=self.period).mean()
@@ -147,13 +151,13 @@ class BollingerBands(TechnicalComponent):
         curr_upper = upper.iloc[-1]
         curr_lower = lower.iloc[-1]
         
-        score = 0.0
+        score = 0.5
         # Price > Upper -> Overbought/Momentum? Usually mean reversion -> Short
         if curr_price > curr_upper:
-            score = -0.8
+            score = 0.1 # Overbought -> Sell
         # Price < Lower -> Oversold -> Long
         elif curr_price < curr_lower:
-            score = 0.8
+            score = 0.9 # Oversold -> Buy
             
         return ComponentScore(
             score=score,
@@ -171,7 +175,7 @@ class Divergences(TechnicalComponent):
         # Placeholder for complex divergence logic
         # Requires finding peaks/troughs in price and indicator (e.g. RSI)
         return ComponentScore(
-            score=0.0,
+            score=0.5,
             confidence=0.2,
             category=self.category,
             metadata={"info": "Not implemented"}
