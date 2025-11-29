@@ -15,7 +15,7 @@ class SentimentAnalysis(ScoringComponent):
         
         if not sentiment_data:
             # If no sentiment data provided, return neutral
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"status": "no_data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"status": "no_data"})
             
         # Expecting sentiment_data to be a dict like {"score": 0.5, "source": "news_api"}
         # Score assumed to be -1 to 1
@@ -24,6 +24,9 @@ class SentimentAnalysis(ScoringComponent):
         
         # Validate range
         score = max(-1.0, min(1.0, float(raw_score)))
+        
+        # Normalize to 0-1
+        score = (score + 1) / 2
         
         return ComponentScore(
             score=score,

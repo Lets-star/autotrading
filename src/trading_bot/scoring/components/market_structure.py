@@ -34,12 +34,12 @@ class HighsLows(MarketStructureComponent):
     def calculate(self, data: Dict[str, Any]) -> ComponentScore:
         df = data.get('candles')
         if df is None or df.empty or len(df) < self.window * 2 + 1:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "Insufficient data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "Insufficient data"})
 
         highs, lows = self._find_pivots(df['high'], df['low'], self.window)
         
         if highs.empty or lows.empty:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category)
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category)
 
         last_high = highs.index[-1]
         last_low = lows.index[-1]
@@ -47,7 +47,7 @@ class HighsLows(MarketStructureComponent):
         prev_high = highs.index[-2] if len(highs) > 1 else None
         prev_low = lows.index[-2] if len(lows) > 1 else None
         
-        score = 0.0
+        score = 0.5
         trend = "NEUTRAL"
         
         if prev_high and prev_low:
@@ -60,7 +60,7 @@ class HighsLows(MarketStructureComponent):
                 score = 1.0
                 trend = "BULLISH"
             elif curr_h_val < prev_h_val and curr_l_val < prev_l_val:
-                score = -1.0
+                score = 0.0
                 trend = "BEARISH"
                 
         return ComponentScore(
@@ -82,7 +82,7 @@ class BreakOfStructure(MarketStructureComponent):
         # Placeholder for BoS logic. 
         # Typically requires identifying a key level and checking if price closed beyond it.
         return ComponentScore(
-            score=0.0,
+            score=0.5,
             confidence=0.2,
             category=self.category,
             metadata={"info": "Not implemented"}

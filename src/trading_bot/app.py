@@ -184,10 +184,17 @@ if mode == "Live Dashboard":
                         cat_df = comp_df[comp_df['Category'] == cat]
                         for _, row in cat_df.iterrows():
                             # Render mini-card
-                            score_color = ":green" if row['Score'] > 0 else ":red" if row['Score'] < 0 else ":grey"
+                            # 0-0.4 Red (Bearish), 0.4-0.6 Grey (Neutral), 0.6-1 Green (Bullish)
+                            if row['Score'] > 0.6:
+                                score_color = ":green"
+                            elif row['Score'] < 0.4:
+                                score_color = ":red"
+                            else:
+                                score_color = ":grey"
+                                
                             st.markdown(f"**{row['Name']}**")
                             st.markdown(f"Score: {score_color}[{row['Score']:.2f}] | W: {row['Weight']:.1f}")
-                            st.progress(max(0.0, min(1.0, abs(row['Score']))))
+                            st.progress(max(0.0, min(1.0, row['Score'])))
                             st.divider()
 
             with st.expander("Show Details (Logs & Metadata)"):

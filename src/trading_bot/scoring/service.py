@@ -66,10 +66,15 @@ class ScoringService:
         result = self.calculate_score(data)
         
         score = result['aggregated_score']
-        action = "HOLD"
-        if score > 0.5:
+        action = "NEUTRAL"
+        
+        if score >= 0.7:
+            action = "STRONG BUY"
+        elif score >= 0.6:
             action = "BUY"
-        elif score < -0.5:
+        elif score <= 0.3:
+            action = "STRONG SELL"
+        elif score <= 0.4:
             action = "SELL"
             
         return {

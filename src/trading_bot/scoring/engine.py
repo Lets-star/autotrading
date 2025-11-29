@@ -38,9 +38,9 @@ class CompositeScoreEngine:
                 
             except Exception as e:
                 logger.error(f"Error in component {name}: {e}")
-                component_results[name] = ComponentScore(score=0.0, confidence=0.0, metadata={"error": str(e)})
+                component_results[name] = ComponentScore(score=0.5, confidence=0.0, metadata={"error": str(e)})
 
-        final_score = 0.0
+        final_score = 0.5
         if total_weight > 0:
             final_score = weighted_sum / total_weight
             
@@ -64,10 +64,14 @@ class CompositeScoreEngine:
         components_data = signal_context.get("components", {})
         
         for name, data in components_data.items():
-            score = data.get('score', 0.0)
+            score = data.get('score', 0.5)
             
             # If score and outcome have same sign, it was a good prediction
-            prediction_correct = (score > 0 and actual_outcome > 0) or (score < 0 and actual_outcome < 0)
+            # Score 0-1, outcome -1/1
+            is_bullish = score > 0.5
+            is_bearish = score < 0.5
+            
+            prediction_correct = (is_bullish and actual_outcome > 0) or (is_bearish and actual_outcome < 0)
             
             # Adjust weight
             current_weight = self.weights.get(name, 1.0)
@@ -77,7 +81,7 @@ class CompositeScoreEngine:
                 new_weight = current_weight * (1 + self.learning_rate)
             else:
                 # Decrease weight, but keep it bounded
-                if score != 0: # Only penalize if it had an opinion
+                if abs(score - 0.5) > 0.01: # Only penalize if it had an opinion
                     new_weight = current_weight * (1 - self.learning_rate)
                 else:
                     new_weight = current_weight

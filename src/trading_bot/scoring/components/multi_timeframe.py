@@ -27,7 +27,7 @@ class MultiTimeframeAlignment(ScoringComponent):
         mtf_data = data.get('mtf_candles', {})
         
         if not mtf_data:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category, metadata={"error": "No MTF data"})
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category, metadata={"error": "No MTF data"})
 
         trends = []
         for tf in self.timeframes:
@@ -36,16 +36,19 @@ class MultiTimeframeAlignment(ScoringComponent):
                 trends.append(self._get_trend(df))
         
         if not trends:
-            return ComponentScore(score=0.0, confidence=0.0, category=self.category)
+            return ComponentScore(score=0.5, confidence=0.0, category=self.category)
 
         # Alignment
         avg_trend = sum(trends) / len(trends)
+        
+        # Normalize -1..1 to 0..1
+        score = (avg_trend + 1) / 2
         
         # Confidence is high if all agree
         agreement = abs(sum(trends)) / len(trends) # 1.0 if all agree, lower otherwise
         
         return ComponentScore(
-            score=avg_trend,
+            score=score,
             confidence=agreement,
             category=self.category,
             metadata={

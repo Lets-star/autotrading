@@ -113,10 +113,10 @@ class MarketDataService:
                         sl_long = self.risk.calculate_stop_loss(current_price, atr_val)
                         sl_short = current_price + (atr_val * self.risk.atr_multiplier)
                         
-                        if action == 'BUY':
+                        if 'BUY' in action:
                             risk_metrics['sl'] = sl_long
                             risk_metrics['tp'] = current_price + (current_price - sl_long) * 1.5 
-                        elif action == 'SELL':
+                        elif 'SELL' in action:
                             risk_metrics['sl'] = sl_short
                             risk_metrics['tp'] = current_price - (sl_short - current_price) * 1.5
                         else:
