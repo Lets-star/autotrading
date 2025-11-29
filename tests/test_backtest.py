@@ -5,7 +5,7 @@ from trading_bot.backtesting.engine import BacktestEngine
 
 @pytest.fixture
 def mock_data_fetcher():
-    with patch('trading_bot.backtesting.engine.BinanceDataFetcher') as MockFetcher:
+    with patch('trading_bot.backtesting.engine.BybitDataFetcher') as MockFetcher:
         fetcher_instance = MockFetcher.return_value
         
         # Create dummy dataframe
@@ -25,7 +25,7 @@ def mock_data_fetcher():
         yield MockFetcher
 
 def test_backtest_run(mock_data_fetcher):
-    engine = BacktestEngine()
+    engine = BacktestEngine(data_source="bybit")
     results = engine.run(symbol="BTCUSDT", interval="1h", limit=100)
     
     assert results is not None
@@ -42,11 +42,11 @@ def test_backtest_with_trades():
     }
     df = pd.DataFrame(data)
     
-    with patch('trading_bot.backtesting.engine.BinanceDataFetcher') as MockFetcher:
+    with patch('trading_bot.backtesting.engine.BybitDataFetcher') as MockFetcher:
         fetcher_instance = MockFetcher.return_value
         fetcher_instance.fetch_history.return_value = df
         
-        engine = BacktestEngine()
+        engine = BacktestEngine(data_source="bybit")
         results = engine.run()
         
         assert results is not None

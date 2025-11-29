@@ -5,6 +5,7 @@ from trading_bot.logger import get_logger
 from trading_bot.config import settings
 from .storage import DataStorage
 from .binance import BinanceDataFeed
+from .bybit import BybitDataFeed
 
 logger = get_logger(__name__)
 
@@ -20,6 +21,14 @@ class DataFeedService:
         
         if self.exchange_id == "binance":
             self.feed = BinanceDataFeed(
+                api_key=settings.api_key,
+                api_secret=settings.api_secret,
+                storage=self.storage,
+                symbols=self.symbols,
+                intervals=self.intervals
+            )
+        elif self.exchange_id == "bybit":
+            self.feed = BybitDataFeed(
                 api_key=settings.api_key,
                 api_secret=settings.api_secret,
                 storage=self.storage,

@@ -2,7 +2,7 @@ import threading
 import time
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from trading_bot.data_feeds.binance_fetcher import BinanceDataFetcher
+from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
 from trading_bot.scoring.service import ScoringService
 from trading_bot.risk.service import RiskService
 from trading_bot.logger import get_logger
@@ -18,7 +18,7 @@ class MarketDataService:
         self.selected_timeframe = selected_timeframe
         
         # Initialize fetcher
-        self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
+        self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
         self.scoring = ScoringService(active_timeframes=timeframes)
         self.risk = RiskService()
         
