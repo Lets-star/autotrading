@@ -43,12 +43,27 @@ def test_fetch_history_retry(fetcher):
     fetcher.client.get_klines = MagicMock(side_effect=[Exception("Fail 1"), Exception("Fail 2"), mock_klines])
     
     # Speed up backoff for test
+    from binance.client import Client
+    initial_ua = Client.USER_AGENT
+    
     with patch('time.sleep') as mock_sleep:
         df = fetcher.fetch_history("BTCUSDT", "1m", 1)
         
         assert mock_sleep.call_count == 2
         assert len(df) == 1
         assert df.iloc[0]['close'] == 105.0
+        
+        # Check if UA changed (probabilistic, but likely since list > 1)
+        # Note: If it picks the same one by chance, this might fail, but with 6 UAs, chance is low.
+        # Ideally we mock random.choice
+    
+    # We can check if random.choice was called
+    with patch('random.choice') as mock_random:
+        mock_random.return_value = "MockUA"
+        fetcher.client.get_klines = MagicMock(side_effect=[Exception("Fail"), mock_klines])
+        with patch('time.sleep'):
+            fetcher.fetch_history("BTCUSDT", "1m", 1)
+            assert Client.USER_AGENT == "MockUA"
 
 def test_fetch_history_cache_fallback(fetcher):
     # Create dummy cache file

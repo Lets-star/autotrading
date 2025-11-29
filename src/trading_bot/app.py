@@ -401,24 +401,26 @@ elif mode == "Backtest Lab":
     
     with st.expander("Configuration", expanded=True):
         with st.form("bt_form"):
-            c1, c2, c3, c4 = st.columns(4)
-            bt_symbol = c1.text_input("Symbol", selected_symbol)
+            c1, c2, c3, c4, c5 = st.columns(5)
+            data_source = c1.selectbox("Source", ["Binance", "Bybit"])
+            bt_symbol = c2.text_input("Symbol", selected_symbol)
             
             bt_opts = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
             def_idx = bt_opts.index(primary_timeframe) if primary_timeframe in bt_opts else 4
             
-            bt_interval = c2.selectbox("Interval", bt_opts, index=def_idx)
-            bt_limit = c3.slider("History Length (Candles)", 100, 1000, 500)
-            debug_mode = c4.checkbox("Show Debug Logs", value=False)
+            bt_interval = c3.selectbox("Interval", bt_opts, index=def_idx)
+            bt_limit = c4.slider("Len", 100, 1000, 500)
+            debug_mode = c5.checkbox("Debug", value=False)
             
             run_bt = st.form_submit_button("Run Simulation")
             
     if run_bt:
-        with st.spinner(f"Backtesting {bt_symbol} on {bt_interval}..."):
+        with st.spinner(f"Backtesting {bt_symbol} on {bt_interval} via {data_source}..."):
             engine = BacktestEngine(
                 api_key=BYBIT_API_KEY, 
                 api_secret=BYBIT_API_SECRET,
-                active_timeframes=st.session_state.active_timeframes
+                active_timeframes=st.session_state.active_timeframes,
+                data_source=data_source
             )
             
             # Apply UI Settings to Backtest Engine
@@ -433,6 +435,11 @@ elif mode == "Backtest Lab":
             )
             
             results = engine.run(bt_symbol, bt_interval, bt_limit, debug=debug_mode)
+            
+            # Display connection status
+            status = getattr(engine.fetcher, 'status', 'Unknown')
+            status_color = "green" if status == "Connected" else "orange" if status == "Using Cache" else "red"
+            st.markdown(f"**Connection Status:** :{status_color}[{status}]")
             
             if "error" in results:
                 st.error(results['error'])

@@ -3,16 +3,25 @@ from typing import Dict, Any, List, Optional
 from trading_bot.scoring.service import ScoringService
 from trading_bot.risk.service import RiskService
 from trading_bot.data_feeds.binance_fetcher import BinanceDataFetcher
+from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
 from trading_bot.logger import get_logger
 
 logger = get_logger(__name__)
 
 class BacktestEngine:
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None):
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None, data_source: str = "binance"):
         self.active_timeframes = active_timeframes or ['1h']
         self.scoring = ScoringService(active_timeframes=self.active_timeframes)
         self.risk = RiskService()
-        self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
+        self.data_source = data_source.lower()
+        
+        if self.data_source == "bybit":
+             self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
+             logger.info("Using Bybit Data Fetcher")
+        else:
+             self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
+             logger.info("Using Binance Data Fetcher")
+             
         self.trades = []
         self.balance = 10000.0
         self.position = None 

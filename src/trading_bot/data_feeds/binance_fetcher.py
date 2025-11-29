@@ -7,14 +7,24 @@ from trading_bot.config import settings
 from datetime import datetime
 import time
 import os
+import random
 
 logger = get_logger(__name__)
+
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1'
+]
 
 class BinanceDataFetcher:
     def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, tld: Optional[str] = None, proxies: Optional[Dict] = None):
         # 1. Add User-Agent and headers
         # Set User-Agent via class attribute to avoid requests conflict
-        Client.USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        Client.USER_AGENT = USER_AGENTS[0]
         
         if tld is None:
             tld = settings.binance_tld
@@ -26,6 +36,11 @@ class BinanceDataFetcher:
         # 4. Add support for proxy
         if proxies:
             self.requests_params['proxies'] = proxies
+        elif settings.proxy_url:
+             self.requests_params['proxies'] = {
+                 'http': settings.proxy_url,
+                 'https': settings.proxy_url
+             }
             
         self.client = Client(api_key, api_secret, tld=tld, requests_params=self.requests_params)
         
@@ -33,15 +48,20 @@ class BinanceDataFetcher:
         self.cache_dir = "data_cache"
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
+            
+        self.status = "Idle"
 
     def fetch_orderbook(self, symbol: str, limit: int = 10) -> Dict[str, Any]:
         """
         Fetch current order book for a symbol.
         """
         try:
-            return self.client.get_order_book(symbol=symbol, limit=limit)
+            res = self.client.get_order_book(symbol=symbol, limit=limit)
+            self.status = "Connected"
+            return res
         except Exception as e:
             logger.error(f"Error fetching orderbook from Binance: {e}")
+            self.status = "Failed"
             return {}
 
     def fetch_history(self, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
@@ -52,7 +72,9 @@ class BinanceDataFetcher:
         cache_file = os.path.join(self.cache_dir, f"{symbol}_{interval}_{limit}.csv")
         
         try:
-            return self._fetch_from_api_with_retry(symbol, interval, limit)
+            df = self._fetch_from_api_with_retry(symbol, interval, limit)
+            self.status = "Connected"
+            return df
         except Exception as e:
             logger.error(f"API fetch failed: {e}. Trying fallback to cache.")
             if os.path.exists(cache_file):
@@ -63,10 +85,12 @@ class BinanceDataFetcher:
                         df['timestamp'] = pd.to_datetime(df['timestamp'])
                     
                     logger.info(f"Loaded {len(df)} candles from cache: {cache_file}")
+                    self.status = "Using Cache"
                     return df
                 except Exception as cache_e:
                     logger.error(f"Failed to read cache: {cache_e}")
             
+            self.status = "Failed"
             return pd.DataFrame()
 
     def _fetch_from_api_with_retry(self, symbol: str, interval: str, limit: int) -> pd.DataFrame:
@@ -75,7 +99,11 @@ class BinanceDataFetcher:
         
         for attempt in range(retries):
             try:
-                # client.get_klines returns:
+                # Rotate User-Agent
+                ua = random.choice(USER_AGENTS)
+                Client.USER_AGENT = ua
+                
+                # Using get_klines (latest data)
                 # [
                 #   [
                 #     1499040000000,      // Open time

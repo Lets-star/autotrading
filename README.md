@@ -86,6 +86,18 @@ api_secret = "YOUR_API_SECRET"
 
 The application will fall back to environment variables (`API_KEY`, `API_SECRET`) if secrets are not found.
 
+## Handling Binance 403 Errors
+
+If you encounter "CloudFront 403 Error" when fetching data from Binance, you have several options:
+
+1.  **Alternative Source**: In the Backtest Lab, change the "Source" from "Binance" to "Bybit".
+2.  **Retry & User-Agent Rotation**: The system automatically retries with different User-Agents and exponential backoff.
+3.  **Caching**: Data is automatically cached in `data_cache/` directory. If the API fails, the system attempts to load data from the cache.
+4.  **Proxies**: You can configure a proxy by setting the `PROXY_URL` environment variable in `.env`:
+    ```
+    PROXY_URL=http://user:pass@host:port
+    ```
+
 ## Usage
 
 ### Run the Dashboard
