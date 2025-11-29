@@ -13,6 +13,7 @@ class BybitDataFetcher:
             api_key=api_key,
             api_secret=api_secret
         )
+        self.status = "Idle"
 
     def _map_interval(self, interval: str) -> str:
         mapping = {
@@ -62,8 +63,10 @@ class BybitDataFetcher:
             
             if response['retCode'] != 0:
                 logger.error(f"Bybit API Error (History): {response['retMsg']}")
+                self.status = "Failed"
                 return pd.DataFrame()
             
+            self.status = "Connected"
             # response['result']['list'] is a list of lists: 
             # [startTime, openPrice, highPrice, lowPrice, closePrice, volume, turnover]
             
@@ -89,4 +92,5 @@ class BybitDataFetcher:
             
         except Exception as e:
             logger.error(f"Error fetching history from Bybit: {e}")
+            self.status = "Failed"
             return pd.DataFrame()

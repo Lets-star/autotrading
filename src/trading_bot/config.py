@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     api_secret: Optional[str] = Field(None, description="Exchange API Secret")
     exchange_id: str = Field("binance", description="Exchange ID (binance, bybit)")
     binance_tld: str = Field("us", description="Binance TLD (us or com)")
+    proxy_url: Optional[str] = Field(None, description="Proxy URL (e.g. http://user:pass@host:port)")
     
     risk_limit_amount: float = Field(100.0, description="Max amount per trade")
     atr_multiplier: float = Field(2.0, description="Multiplier for ATR stop loss")
