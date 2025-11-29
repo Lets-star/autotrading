@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     api_key: Optional[str] = Field(None, description="Exchange API Key")
     api_secret: Optional[str] = Field(None, description="Exchange API Secret")
-    exchange_id: str = Field("binance", description="Exchange ID (binance, bybit)")
+    exchange_id: str = Field("bybit", description="Exchange ID (binance, bybit)")
     binance_tld: str = Field("us", description="Binance TLD (us or com)")
     proxy_url: Optional[str] = Field(None, description="Proxy URL (e.g. http://user:pass@host:port)")
     

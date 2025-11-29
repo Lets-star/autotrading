@@ -402,7 +402,8 @@ elif mode == "Backtest Lab":
     with st.expander("Configuration", expanded=True):
         with st.form("bt_form"):
             c1, c2, c3, c4, c5 = st.columns(5)
-            data_source = c1.selectbox("Source", ["Binance", "Bybit"])
+            # Defaulting to Bybit only as per requirements
+            data_source = c1.selectbox("Source", ["Bybit"]) 
             bt_symbol = c2.text_input("Symbol", selected_symbol)
             
             bt_opts = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]

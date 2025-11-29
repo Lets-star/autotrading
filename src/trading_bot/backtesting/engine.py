@@ -9,18 +9,21 @@ from trading_bot.logger import get_logger
 logger = get_logger(__name__)
 
 class BacktestEngine:
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None, data_source: str = "binance"):
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None, data_source: str = "bybit"):
         self.active_timeframes = active_timeframes or ['1h']
         self.scoring = ScoringService(active_timeframes=self.active_timeframes)
         self.risk = RiskService()
         self.data_source = data_source.lower()
         
-        if self.data_source == "bybit":
+        if self.data_source == "binance":
+             # Fallback to Bybit if Binance is requested but we know it fails, 
+             # or just warn. User said "Use only Bybit".
+             # For now, let's allow it but default to Bybit in the signature.
+             logger.warning("Binance data source requested but might be blocked. Consider using 'bybit'.")
+             self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
+        else:
              self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
              logger.info("Using Bybit Data Fetcher")
-        else:
-             self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
-             logger.info("Using Binance Data Fetcher")
              
         self.trades = []
         self.balance = 10000.0
@@ -52,8 +55,8 @@ class BacktestEngine:
         # Fetch data
         df = self.fetcher.fetch_history(symbol, interval, limit)
         if df.empty:
-            logger.error("No data returned from Binance")
-            return {"error": "No data returned from Binance"}
+            logger.error(f"No data returned from {self.data_source}")
+            return {"error": f"No data returned from {self.data_source}"}
             
         logger.info(f"Fetched {len(df)} candles")
         if debug:
