@@ -1,219 +1,241 @@
-
-import sys
 import os
+import sys
 import time
+import json
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
-# Add src to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-# Add scripts to path (for local imports when running from root or elsewhere)
-sys.path.append(os.path.dirname(__file__))
+# Add src to python path to import config
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+src_path = os.path.join(project_root, 'src')
+sys.path.append(src_path)
 
 from trading_bot.config import settings
-from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
-from trading_bot.scoring.service import ScoringService
-from trading_bot.risk.service import RiskService
+from pybit.unified_trading import HTTP
 
-try:
-    from signal_handler import SignalHandler
-    from position_tracker import PositionTracker
-except ImportError:
-    from scripts.signal_handler import SignalHandler
-    from scripts.position_tracker import PositionTracker
+# Constants
+SIGNAL_FILE = os.path.join(project_root, 'signals', 'command.txt')
+STATUS_FILE = os.path.join(project_root, 'signals', 'status.json')
+POSITIONS_FILE = os.path.join(project_root, 'data', 'positions.json')
+LOG_FILE = os.path.join(project_root, 'logs', 'daemon.log')
 
-try:
-    import pandas_ta as ta
-except ImportError:
-    pass
-
-# Setup logging
-log_file = 'logs/bot.log'
-os.makedirs(os.path.dirname(log_file), exist_ok=True)
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Setup Logging
+logger = logging.getLogger("BotDaemon")
+logger.setLevel(logging.DEBUG)
+handler = RotatingFileHandler(LOG_FILE, maxBytes=1024*1024, backupCount=5)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 class BotDaemon:
     def __init__(self):
         self.running = False
-        self.paused = False
-        self.symbol = "BTCUSDT" 
-        self.timeframes = ["1h", "4h", "1d"]
-        
-        # Load API keys
-        self.api_key = settings.api_key
-        self.api_secret = settings.api_secret
-        
-        self.fetcher = BybitDataFetcher(self.api_key, self.api_secret)
-        self.scoring = ScoringService(active_timeframes=self.timeframes)
-        self.risk = RiskService()
-        
-        self.signal_handler = SignalHandler()
-        self.tracker = PositionTracker(self.fetcher)
-        
-        self.last_trade_time = None
-        self.total_pnl = 0.0 # This would need persistent storage or fetching from account
+        self.positions = {}
+        self.client = None
+        self._init_client()
+        self._load_positions()
 
-    def execute_logic(self):
-        # 1. Fetch Data
-        logger.debug(f"Fetching data for {self.symbol}")
-        df = self.fetcher.fetch_history(self.symbol, "1h", limit=100) # Use 1h as primary
-        
-        if df.empty:
-            logger.warning("No data received")
-            return
-
-        # 2. Calculate Signals
-        # We need MTF data for scoring
-        mtf_data = {}
-        for tf in self.timeframes:
-            if tf == "1h":
-                mtf_data[tf] = df
-            else:
-                mtf_data[tf] = self.fetcher.fetch_history(self.symbol, tf, limit=100)
-        
-        signal = self.scoring.calculate_signals(df, mtf_data=mtf_data)
-        
-        # 3. Execution Logic
-        action = signal.get('action', 'NEUTRAL')
-        score = signal.get('score', 0.0)
-        
-        if action != 'NEUTRAL':
-            logger.info(f"Signal Generated: {action} @ Score {score:.2f}")
-            logger.info(f"Thresholds -> Long: {self.scoring.long_threshold}, Short: {self.scoring.short_threshold}")
-        
-        if "BUY" in action or "SELL" in action:
-            # Check if we already have a position
-            positions = self.tracker.fetch_positions() 
-            if any(p['symbol'] == self.symbol for p in positions):
-                logger.info(f"Position already open for {self.symbol}. Skipping.")
-                return
-
-            # Prepare Market Data for Risk
-            current_close = float(df.iloc[-1]['close'])
-            volume_24h = float(df['volume'].sum()) # Approx
-            
-            atr_val = 0.0
-            try:
-                if 'ta' in globals() and ta is not None:
-                    atr_series = df.ta.atr(length=14)
-                    if atr_series is not None and not atr_series.empty:
-                        atr_val = float(atr_series.iloc[-1])
-                else:
-                    atr_val = float((df['high'] - df['low']).mean())
-            except Exception as e:
-                logger.warning(f"ATR calculation failed: {e}")
-
-            market_data = {
-                'volume_24h': volume_24h,
-                'atr': atr_val,
-                'close': current_close
-            }
-            
-            # Use settings for risk limit amount if available, otherwise default to 1000
-            amount = getattr(settings, 'risk_limit_amount', 1000.0)
-            
-            order_params = {
-                "amount": amount,
-                "symbol": self.symbol
-            }
-            
-            logger.info(f"Checking Risk for {action} with amount {amount}...")
-            allowed, reason = self.risk.validate_order(order_params, market_data)
-            
-            if not allowed:
-                logger.warning(f"❌ Risk rejected: {reason}")
-                return
-                
-            logger.info(f"✅ Risk approved. Opening position...")
-            
-            # Execute
-            side = "Buy" if "BUY" in action else "Sell"
-            if current_close > 0:
-                qty = amount / current_close 
-                qty = round(qty, 3) 
-                
-                result = self.fetcher.place_order(
-                    symbol=self.symbol,
-                    side=side,
-                    qty=qty
+    def _init_client(self):
+        try:
+            if settings.api_key and settings.api_secret:
+                self.client = HTTP(
+                    testnet=False,
+                    api_key=settings.api_key,
+                    api_secret=settings.api_secret
                 )
-                
-                if result.get('success'):
-                    logger.info(f"Position opened: {self.symbol} {side} entry={current_close} size={qty}")
-                    # Update status immediately
-                    self.signal_handler.update_status("Running", {
-                        "last_trade": f"{side} {self.symbol} @ {current_close}",
-                        "last_trade_time": datetime.now().isoformat()
-                    })
-                else:
-                    logger.error(f"Failed to open position: {result.get('error')}")
+                logger.info("Bybit client initialized")
+            else:
+                logger.warning("API Key/Secret not found. Running in simulation mode (no real trades).")
+        except Exception as e:
+            logger.error(f"Failed to init Bybit client: {e}")
+
+    def _load_positions(self):
+        if os.path.exists(POSITIONS_FILE):
+            try:
+                with open(POSITIONS_FILE, 'r') as f:
+                    self.positions = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load positions: {e}")
+                self.positions = {}
+
+    def save_positions(self):
+        try:
+            with open(POSITIONS_FILE, 'w') as f:
+                json.dump(self.positions, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save positions: {e}")
+
+    def update_status(self):
+        try:
+            status = {
+                "pid": os.getpid(),
+                "running": self.running,
+                "last_update": datetime.utcnow().isoformat()
+            }
+            with open(STATUS_FILE, 'w') as f:
+                json.dump(status, f)
+        except Exception as e:
+            logger.error(f"Failed to update status: {e}")
+
+    def read_signal(self):
+        if not os.path.exists(SIGNAL_FILE):
+            return None
+        
+        try:
+            with open(SIGNAL_FILE, 'r') as f:
+                content = f.read()
+            
+            # Parse key-value pairs
+            data = {}
+            for line in content.splitlines():
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    data[key.strip()] = value.strip()
+            
+            # Remove file after reading to avoid duplicate processing
+            os.remove(SIGNAL_FILE)
+            
+            if 'ACTION' in data:
+                return data
+            return None
+        except Exception as e:
+            logger.error(f"Error reading signal file: {e}")
+            return None
+
+    def check_risk(self, signal):
+        # Basic risk check
+        # For now, just check if we have enough balance (mock check if client not available)
+        # or check if we already have a position for this pair
+        
+        pair = signal.get('PAIR')
+        if not pair:
+            return False
+        
+        # Check if position already exists
+        position_key = f"{pair}_LONG" # Assuming LONG for now as per example
+        if signal.get('ACTION') == 'BUY' and position_key in self.positions:
+            logger.warning(f"Position already exists for {pair}")
+            return False
+            
+        return True
+
+    def open_position(self, signal):
+        pair = signal.get('PAIR')
+        action = signal.get('ACTION')
+        score = float(signal.get('SCORE', 0))
+        
+        logger.info(f"Opening position: {action} {pair} (Score: {score})")
+        
+        # Real execution
+        if self.client:
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    # Example: Market Buy
+                    # For simplicity, using a fixed qty or calculated based on risk
+                    # We need to fetch current price or use market order
+                    
+                    # Fetch ticker to get price
+                    ticker = self.client.get_tickers(category="linear", symbol=pair)
+                    price = float(ticker['result']['list'][0]['lastPrice'])
+                    
+                    # Calculate size based on risk_limit_amount (USD)
+                    # size = USD / price
+                    size_usd = settings.risk_limit_amount
+                    qty = size_usd / price
+                    # Round qty to valid precision (simplified here)
+                    qty = round(qty, 3) 
+
+                    side = "Buy" if action == "BUY" else "Sell"
+                    
+                    logger.info(f"Placing order: {side} {qty} {pair} at ~{price}")
+                    
+                    order = self.client.place_order(
+                        category="linear",
+                        symbol=pair,
+                        side=side,
+                        orderType="Market",
+                        qty=str(qty),
+                        # timeInForce="GTC"
+                    )
+                    logger.info(f"Order placed: {order}")
+                    
+                    # Assume filled for tracking
+                    position_id = f"{pair}_{'LONG' if action == 'BUY' else 'SHORT'}"
+                    self.positions[position_id] = {
+                        "entry": price,
+                        "size": qty,
+                        "sl": price * 0.95, # Example SL
+                        "tp1": price * 1.05, # Example TP
+                        "tp2": price * 1.07,
+                        "tp3": price * 1.10,
+                        "opened_at": datetime.utcnow().isoformat() + "Z"
+                    }
+                    self.save_positions()
+                    return self.positions[position_id]
+                    
+                except Exception as e:
+                    logger.error(f"Bybit API Error (Attempt {attempt+1}/{retries}): {e}")
+                    if attempt < retries - 1:
+                        time.sleep(1)
+                    else:
+                        raise e
+        else:
+            # Simulation mode
+            logger.info("Simulation: Position opened")
+            position_id = f"{pair}_{'LONG' if action == 'BUY' else 'SHORT'}"
+            self.positions[position_id] = {
+                "entry": 45000, # Mock
+                "size": 0.1,
+                "sl": 44000,
+                "tp1": 46000,
+                "opened_at": datetime.utcnow().isoformat() + "Z",
+                "simulated": True
+            }
+            self.save_positions()
+            return self.positions[position_id]
+
+    def process_command(self, data):
+        action = data.get('ACTION')
+        if action == 'START':
+            self.running = True
+            logger.info("Daemon STARTED processing signals")
+        elif action == 'STOP':
+            self.running = False
+            logger.info("Daemon STOPPED processing signals")
+        elif action == 'CLOSE_ALL':
+            logger.info("Closing all positions...")
+            self.positions = {} # Mock close
+            self.save_positions()
+        elif action == 'HEALTH_CHECK':
+            logger.info("Health check: OK")
+        elif action in ['BUY', 'SELL']:
+            if self.running:
+                if self.check_risk(data):
+                    try:
+                        self.open_position(data)
+                    except Exception as e:
+                        logger.error(f"Failed to open position: {e}")
+            else:
+                logger.info(f"Signal ignored (Daemon stopped): {data}")
 
     def run(self):
-        logger.info("Bot daemon initialized")
-        
+        logger.info("Bot Daemon started. Waiting for signals...")
+        # Create positions file if not exists
+        if not os.path.exists(POSITIONS_FILE):
+             self.save_positions()
+
         while True:
-            try:
-                # Check control signals
-                cmd_raw = self.signal_handler.check_signal()
-                if cmd_raw:
-                    parts = cmd_raw.split()
-                    cmd = parts[0]
-                    args = parts[1:]
-                    
-                    if cmd == "START":
-                        self.running = True
-                        self.paused = False
-                        logger.info("START signal received. Bot running.")
-                    elif cmd == "STOP":
-                        self.running = False
-                        self.paused = False
-                        logger.info("STOP signal received. Bot stopped.")
-                    elif cmd == "PAUSE":
-                        self.paused = True
-                        logger.info("PAUSE signal received. Bot paused.")
-                    elif cmd == "CLOSE" and args:
-                        symbol_to_close = args[0]
-                        logger.info(f"CLOSE signal received for {symbol_to_close}")
-                        # Implement close logic here
-                        # For now, we can try to use the fetcher session if it supports it, or just log
-                        # self.fetcher.session.place_order(...)
-                        # Since we don't have a dedicated execution service yet in this scope, 
-                        # I'll just log it as a TODO or attempt a market close if I can.
-                        pass
-                
-                # Fetch positions (Always, for monitoring)
-                positions = self.tracker.fetch_positions()
-                
-                # Calculate PnL from positions (unrealized)
-                # current_pnl = sum([float(p.get('unrealisedPnl', 0)) for p in positions])
-                
-                # Update Status
-                status_data = {
-                    "running": self.running,
-                    "paused": self.paused,
-                    "symbol": self.symbol,
-                    "last_update": datetime.now().isoformat(),
-                    "total_pnl": self.total_pnl, # Placeholder
-                    "position_count": len(positions),
-                    "pid": os.getpid()
-                }
-                self.signal_handler.update_status("Running" if self.running and not self.paused else "Paused" if self.paused else "Stopped", status_data)
-                
-                if self.running and not self.paused:
-                    self.execute_logic()
-                
-                time.sleep(1)
-                
-            except Exception as e:
-                logger.error(f"Error in daemon loop: {e}", exc_info=True)
-                self.signal_handler.update_status("Error", {"error": str(e)})
-                time.sleep(5) # Backoff on error
+            self.update_status()
+            signal = self.read_signal()
+            if signal:
+                logger.info(f"Received command: {signal}")
+                self.process_command(signal)
+            
+            time.sleep(1)
 
 if __name__ == "__main__":
-    bot = BotDaemon()
-    bot.run()
+    daemon = BotDaemon()
+    daemon.run()

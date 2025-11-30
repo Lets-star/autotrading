@@ -110,6 +110,7 @@ def start_bot_daemon():
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
         subprocess.Popen([sys.executable, DAEMON_SCRIPT], cwd=root_dir)
         time.sleep(2) 
+        send_command("ACTION=START")
 
 def send_command(cmd):
     os.makedirs(os.path.dirname(COMMAND_FILE), exist_ok=True)
@@ -372,7 +373,7 @@ def render_dashboard(service, selected_symbol, primary_timeframe):
             st.plotly_chart(fig, use_container_width=True, key=f"pos_viz_{symbol}")
             
             if st.button("CLOSE POSITION", type="primary"):
-                send_command(f"CLOSE {symbol}")
+                send_command(f"ACTION=CLOSE_ALL\nPAIR={symbol}")
                 st.success("Close command sent!")
                 
         else:
@@ -551,7 +552,13 @@ def render_debug_section(service):
                 if allowed:
                     st.success("✅ Risk Check PASSED")
                     st.write("In a real run, position would be opened now.")
-                    st.info(f"Command would be: PLACE ORDER {service.symbol} {action} {amount/current_close:.3f}")
+                    
+                    cmd = f"""ACTION={action}
+PAIR={service.symbol}
+SCORE={score_input:.2f}
+TIMESTAMP={datetime.utcnow().isoformat()}Z"""
+                    send_command(cmd)
+                    st.info(f"Signal sent to daemon:\n{cmd}")
                 else:
                     st.error(f"❌ Risk Check FAILED: {reason}")
             except Exception as e:
@@ -693,7 +700,7 @@ def main():
         if daemon_running:
             st.sidebar.success(f"Daemon Running (PID: {status.get('pid')})")
             if st.sidebar.button("Stop Daemon"):
-                send_command("STOP")
+                send_command("ACTION=STOP")
                 st.sidebar.info("Stop command sent")
         else:
             st.sidebar.warning("Daemon Stopped")
