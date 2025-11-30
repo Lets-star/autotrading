@@ -6,7 +6,8 @@ import os
 import time
 import subprocess
 import sys
-from datetime import datetime
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.data_feeds.market_data_service import MarketDataService
@@ -17,6 +18,7 @@ DAEMON_SCRIPT = "scripts/bot_daemon.py"
 STATUS_FILE = "signals/status.json"
 COMMAND_FILE = "signals/command.txt"
 POSITIONS_FILE = "data/positions.json"
+TRADES_FILE = "data/trades.csv"
 LOG_FILE = "logs/bot.log"
 PRESETS_FILE = "presets.json"
 
@@ -83,6 +85,61 @@ def get_logs(lines=50):
         except:
             pass
     return []
+
+def get_trades():
+    if os.path.exists(TRADES_FILE):
+        try:
+            return pd.read_csv(TRADES_FILE)
+        except:
+            pass
+    return pd.DataFrame()
+
+def calculate_stats(trades_df):
+    if trades_df.empty:
+        return {}
+    
+    total_trades = len(trades_df)
+    
+    # Ensure numeric
+    trades_df['pnl'] = pd.to_numeric(trades_df['pnl'], errors='coerce').fillna(0)
+    
+    winning = trades_df[trades_df['pnl'] > 0]
+    losing = trades_df[trades_df['pnl'] <= 0]
+    
+    n_win = len(winning)
+    n_loss = len(losing)
+    win_rate = (n_win / total_trades * 100) if total_trades > 0 else 0
+    
+    avg_win = winning['pnl'].mean() if n_win > 0 else 0
+    avg_loss = losing['pnl'].mean() if n_loss > 0 else 0
+    
+    ratio = abs(avg_win / avg_loss) if avg_loss != 0 else (avg_win if avg_win > 0 else 0)
+    
+    total_pnl = trades_df['pnl'].sum()
+    
+    # Max Drawdown (simulated based on equity curve)
+    trades_df['equity'] = trades_df['pnl'].cumsum()
+    trades_df['peak'] = trades_df['equity'].cummax()
+    trades_df['drawdown'] = trades_df['equity'] - trades_df['peak']
+    max_dd = trades_df['drawdown'].min() if not trades_df.empty else 0
+    
+    # Profit Factor
+    gross_profit = winning['pnl'].sum()
+    gross_loss = abs(losing['pnl'].sum())
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else gross_profit
+    
+    return {
+        "total_trades": total_trades,
+        "n_win": n_win,
+        "n_loss": n_loss,
+        "win_rate": win_rate,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "ratio": ratio,
+        "total_pnl": total_pnl,
+        "max_dd": max_dd,
+        "profit_factor": profit_factor
+    }
 
 def load_presets():
     if os.path.exists(PRESETS_FILE):
@@ -293,129 +350,181 @@ service.risk.update_parameters(
 service.start()
 
 if mode == "Live Dashboard":
-    st.title(f"Live Dashboard: {selected_symbol} ({primary_timeframe})")
+    # 1. Header Section
+    col_status, col_ticker, col_ob_mini = st.columns([1, 2, 2])
     
-    # Auto-refresh logic (basic)
-    auto_refresh = st.sidebar.checkbox("Auto-refresh (1s)", value=False)
-    
-    # Display Status
-    status_col1, status_col2, status_col3 = st.sidebar.columns(3)
     data = service.get_data()
     
-    status_col1.metric("Status", data['status'])
-    status_col2.metric("Updates", data['update_count'])
-    
-    if data['last_updated'] > 0:
-        latency = time.time() - data['last_updated']
-        status_col3.metric("Latency", f"{latency:.1f}s")
-    
-    if data['error']:
-        st.sidebar.error(f"Error: {data['error']}")
+    # Auto-refresh logic
+    auto_refresh = st.sidebar.checkbox("Auto-refresh (1s)", value=True)
+    if auto_refresh:
+        time.sleep(1)
+        st.rerun()
 
-    # 1. Top Metrics Row
-    col1, col2, col3, col4 = st.columns(4)
+    with col_status:
+        st.subheader("Bot Status")
+        st.metric("Status", data['status'])
+        st.metric("Updates", data['update_count'])
+        if data['error']:
+            st.error(f"Error: {data['error']}")
     
-    df = data.get("price_history", pd.DataFrame())
-    signal = data.get("signal", {})
-    
-    if not df.empty:
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
-        price_change = latest['close'] - prev['close']
-        
-        # Safe access to signal
-        score = signal.get('score', 0.0) if signal else 0.0
-        action = signal.get('action', 'NEUTRAL') if signal else 'NEUTRAL'
-        details = signal.get('details', {})
-        
-        col1.metric("Price", f"{latest['close']:.2f}", f"{price_change:.2f}")
-        col2.metric("Composite Score", f"{score:.2f}", delta_color="off")
-        col3.metric("Action", action, delta_color="normal")
-        
-        risk = data.get("risk_metrics", {})
-        if risk and 'sl' in risk:
-             col4.metric("SL / TP", f"{risk['sl']:.2f} / {risk['tp']:.2f}", f"ATR: {risk['atr']:.2f}")
+    with col_ticker:
+        st.subheader("Live Ticker")
+        df = data.get("price_history", pd.DataFrame())
+        if not df.empty:
+            latest = df.iloc[-1]
+            prev = df.iloc[-2]
+            price_change = latest['close'] - prev['close']
+            pct_change = (price_change / prev['close']) * 100
+            
+            # Simulated volume for 24h (just summing up what we have or using metadata)
+            vol_24h = df['volume'].sum() 
+            
+            st.metric("BTC/USDT", f"{latest['close']:.2f}", f"{price_change:.2f} ({pct_change:.2f}%)")
+            
+            t1, t2, t3 = st.columns(3)
+            t1.metric("Vol 24h", f"{vol_24h:.0f}")
+            t2.metric("High 24h", f"{df['high'].max():.2f}")
+            t3.metric("Low 24h", f"{df['low'].min():.2f}")
+            
+    with col_ob_mini:
+        st.subheader("Order Book (Mini)")
+        ob = data.get("orderbook", {})
+        if ob:
+            bids = pd.DataFrame(ob.get('bids', []), columns=['Price', 'Size'])
+            asks = pd.DataFrame(ob.get('asks', []), columns=['Price', 'Size'])
+            
+            if not bids.empty and not asks.empty:
+                bids['Price'] = pd.to_numeric(bids['Price'])
+                bids['Size'] = pd.to_numeric(bids['Size'])
+                asks['Price'] = pd.to_numeric(asks['Price'])
+                asks['Size'] = pd.to_numeric(asks['Size'])
+                
+                # Show top 5
+                c_ask, c_bid = st.columns(2)
+                with c_ask:
+                    st.caption("Asks")
+                    st.dataframe(asks.head(5).style.format({'Price': '{:.2f}', 'Size': '{:.3f}'}), hide_index=True)
+                with c_bid:
+                    st.caption("Bids")
+                    st.dataframe(bids.head(5).style.format({'Price': '{:.2f}', 'Size': '{:.3f}'}), hide_index=True)
         else:
-             atr_val = risk.get('atr', 0.0)
-             col4.metric("Risk Status", "Watching", f"ATR: {atr_val:.2f}" if atr_val > 0 else "")
-        
-        # --- Composite Score Breakdown ---
-        if details:
-            st.markdown("### Composite Score Breakdown")
-            
-            # Prepare data
-            components = details.get('components', {})
-            weights = details.get('weights', {})
-            
-            comp_data = []
-            for name, comp_res in components.items():
-                cat = comp_res.get('category', 'Uncategorized')
-                s_val = comp_res.get('score', 0.0)
-                conf = comp_res.get('confidence', 1.0)
-                w_val = weights.get(name, 1.0)
-                contribution = s_val * w_val * conf
-                
-                comp_data.append({
-                    "Name": name,
-                    "Category": cat,
-                    "Score": s_val,
-                    "Weight": w_val,
-                    "Confidence": conf,
-                    "Contribution": contribution
-                })
-            
-            comp_df = pd.DataFrame(comp_data)
-            
-            if not comp_df.empty:
-                # Top level stats
-                st.caption(f"Aggregated Score: {details.get('aggregated_score', 0.0):.3f}")
-                
-                # Visuals
-                v1, v2 = st.columns([2, 1])
-                with v1:
-                    st.markdown("**Component Scores**")
-                    # Simple bar chart of scores
-                    st.bar_chart(comp_df.set_index("Name")['Score'])
-                    
-                with v2:
-                    st.markdown("**Weights**")
-                    st.bar_chart(comp_df.set_index("Name")['Weight'])
-                
-                # Detailed Grid by Category
-                st.markdown("**Detailed Components**")
-                categories = comp_df['Category'].unique()
-                
-                # Create rows of columns
-                # We'll just iterate and create expanders or columns
-                cat_cols = st.columns(len(categories)) if len(categories) > 0 else [st.container()]
-                
-                for idx, cat in enumerate(categories):
-                    with cat_cols[idx % len(cat_cols)]:
-                        st.info(f"**{cat}**")
-                        cat_df = comp_df[comp_df['Category'] == cat]
-                        for _, row in cat_df.iterrows():
-                            # Render mini-card
-                            # 0-0.4 Red (Bearish), 0.4-0.6 Grey (Neutral), 0.6-1 Green (Bullish)
-                            if row['Score'] > 0.6:
-                                score_color = ":green"
-                            elif row['Score'] < 0.4:
-                                score_color = ":red"
-                            else:
-                                score_color = ":grey"
-                                
-                            st.markdown(f"**{row['Name']}**")
-                            st.markdown(f"Score: {score_color}[{row['Score']:.2f}] | W: {row['Weight']:.1f}")
-                            st.progress(max(0.0, min(1.0, row['Score'])))
-                            st.divider()
+            st.caption("No OB data")
 
-            with st.expander("Show Details (Logs & Metadata)"):
-                st.json(details)
-
-    else:
-        st.warning("Waiting for data...")
-    
-    # 2. Charts & Order Book
     st.markdown("---")
+
+    # 2. Position Panel
+    st.subheader("Active Position")
+    positions = get_positions()
+    
+    if positions:
+        # Assuming only one active position for now per symbol
+        pos = positions[0]
+        
+        # Parse Position Data
+        symbol = pos.get('symbol', selected_symbol)
+        side = pos.get('side', 'Long')
+        entry_price = float(pos.get('avgPrice', 0))
+        current_price = float(pos.get('markPrice', 0))
+        size = float(pos.get('size', 0))
+        pnl = float(pos.get('unrealisedPnl', 0))
+        
+        position_value = size * entry_price
+        pnl_pct = (pnl / position_value * 100) if position_value > 0 else 0
+        
+        # Get Risk Metrics (SL/TP)
+        # If not in position data, use estimated from risk params or current signal
+        sl_price = float(pos.get('stopLoss', 0))
+        tp_price = float(pos.get('takeProfit', 0))
+        
+        # If 0, try to estimate from risk params (just for visualization if allowed)
+        # But better to show what is real.
+        
+        # Display Grid
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Pair", symbol)
+        p1.metric("Direction", side, delta="LONG" if side=="Buy" else "SHORT")
+        
+        p2.metric("Entry Price", f"{entry_price:.2f}")
+        p2.metric("Current Price", f"{current_price:.2f}")
+        
+        p3.metric("PnL (USDT)", f"{pnl:.2f}", delta_color="normal")
+        p3.metric("PnL %", f"{pnl_pct:.2f}%")
+        
+        p4.metric("Size", f"{size} BTC")
+        p4.metric("Value", f"${position_value:.2f}")
+
+        # Progress Bar Visualization
+        # We need SL, Entry, Current, TP1, TP2, TP3
+        # Assuming we can calculate TP1/2/3 relative to entry if not present
+        
+        if sl_price == 0: sl_price = entry_price * 0.99 # Mock
+        if tp_price == 0: tp_price = entry_price * 1.03 # Mock
+        
+        tp1_p = tp_price
+        tp2_p = entry_price + (tp_price - entry_price) * 2 # Mock
+        tp3_p = entry_price + (tp_price - entry_price) * 3 # Mock
+        
+        # Determine range
+        min_val = min(sl_price, current_price, entry_price) * 0.999
+        max_val = max(tp3_p, current_price, entry_price) * 1.001
+        
+        fig = go.Figure()
+        
+        # Background bar
+        fig.add_trace(go.Scatter(
+            x=[sl_price, tp3_p], y=[0, 0],
+            mode='lines', line=dict(color='gray', width=10),
+            showlegend=False
+        ))
+        
+        # Current Price Marker
+        fig.add_trace(go.Scatter(
+            x=[current_price], y=[0],
+            mode='markers', marker=dict(size=20, color='blue', symbol='line-ns-open'),
+            name='Current'
+        ))
+        
+        # Entry Marker
+        fig.add_trace(go.Scatter(
+            x=[entry_price], y=[0],
+            mode='markers', marker=dict(size=15, color='white', symbol='line-ns'),
+            name='Entry'
+        ))
+        
+        # SL Marker
+        fig.add_trace(go.Scatter(
+            x=[sl_price], y=[0],
+            mode='markers', marker=dict(size=15, color='red', symbol='line-ns'),
+            name='SL'
+        ))
+        
+        # TP Markers
+        fig.add_trace(go.Scatter(
+            x=[tp1_p, tp2_p, tp3_p], y=[0, 0, 0],
+            mode='markers', marker=dict(size=15, color='green', symbol='line-ns'),
+            name='TP Targets'
+        ))
+        
+        fig.update_layout(
+            height=100, 
+            xaxis=dict(range=[min_val, max_val], title="Price"),
+            yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+            margin=dict(l=20, r=20, t=30, b=20),
+            showlegend=True
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        if st.button("CLOSE POSITION", type="primary"):
+            send_command(f"CLOSE {symbol}")
+            st.success("Close command sent!")
+            
+    else:
+        st.info("No active positions")
+
+    st.markdown("---")
+
+    # 3. Charts (Existing)
     # Make chart column wider
     c1, c2 = st.columns([3, 1])
     
@@ -423,239 +532,100 @@ if mode == "Live Dashboard":
         st.subheader("Price History")
         if not df.empty:
             risk_metrics = data.get("risk_metrics", {})
-            # Use TradingView chart
             render_tradingview_chart(df, active_risk=risk_metrics, height=500)
             
     with c2:
-        st.subheader("Order Book")
-        ob = data.get("orderbook", {})
-        if ob:
-            bids = pd.DataFrame(ob.get('bids', []), columns=['Price', 'Size'])
-            asks = pd.DataFrame(ob.get('asks', []), columns=['Price', 'Size'])
-            
-            # Convert to numeric for display
-            if not bids.empty:
-                bids['Price'] = pd.to_numeric(bids['Price'])
-                bids['Size'] = pd.to_numeric(bids['Size'])
-            if not asks.empty:
-                asks['Price'] = pd.to_numeric(asks['Price'])
-                asks['Size'] = pd.to_numeric(asks['Size'])
-            
-            st.markdown("**Asks**")
-            st.dataframe(asks.head(5), hide_index=True)
-            st.markdown("**Bids**")
-            st.dataframe(bids.head(5), hide_index=True)
-        else:
-            st.write("Order book unavailable")
-            
-    # 3. Active Positions & Logs
-    st.subheader("Active Positions")
-    
-    positions = get_positions()
-    if positions:
-        # Columns: Pair, Entry Price, Current Price, TP1, TP2, TP3, SL, PnL, PnL%
-        # We need to map Bybit fields to these
-        pos_data = []
-        for p in positions:
-            entry = float(p.get('avgPrice', 0))
-            curr = float(p.get('markPrice', 0))
-            pnl = float(p.get('unrealisedPnl', 0))
-            size = float(p.get('size', 0)) * float(p.get('avgPrice', 0)) # Approximate value
-            pnl_pct = (pnl / size * 100) if size > 0 else 0.0
-            
-            pos_data.append({
-                "Pair": p.get('symbol'),
-                "Side": p.get('side'),
-                "Size": p.get('size'),
-                "Entry Price": entry,
-                "Current Price": curr,
-                "SL": p.get('stopLoss', '-'),
-                "TP": p.get('takeProfit', '-'),
-                "PnL": pnl,
-                "PnL %": pnl_pct
-            })
-        
-        pos_df = pd.DataFrame(pos_data)
-        
-        # Color styling for PnL
-        def color_pnl(val):
-            color = 'green' if val > 0 else 'red' if val < 0 else 'grey'
-            return f'color: {color}'
+        st.subheader("Signal Details")
+        signal = data.get("signal", {})
+        if signal:
+             st.metric("Score", f"{signal.get('score', 0):.2f}")
+             st.metric("Action", signal.get('action', 'NEUTRAL'))
+             st.json(signal.get('details', {}), expanded=False)
 
+    st.markdown("---")
+
+    # 4. Stats & History
+    st.subheader("Performance & History")
+    
+    trades = get_trades()
+    stats = calculate_stats(trades)
+    
+    s1, s2, s3, s4 = st.columns(4)
+    if stats:
+        s1.metric("Win Rate", f"{stats['win_rate']:.1f}%", f"{stats['n_win']}W / {stats['n_loss']}L")
+        s2.metric("Total PnL", f"${stats['total_pnl']:.2f}", f"PF: {stats['profit_factor']:.2f}")
+        s3.metric("Avg Trade", f"${stats['avg_win']:.2f} / ${stats['avg_loss']:.2f}", f"Ratio: {stats['ratio']:.2f}")
+        s4.metric("Max Drawdown", f"${stats['max_dd']:.2f}")
+    
+    if not trades.empty:
         st.dataframe(
-            pos_df.style.map(color_pnl, subset=['PnL', 'PnL %'])
-                        .format({
-                            'Entry Price': '{:.4f}',
-                            'Current Price': '{:.4f}',
-                            'PnL': '{:.4f}',
-                            'PnL %': '{:.2f}%'
-                        }),
+            trades.sort_index(ascending=False).head(10).style.applymap(
+                lambda x: 'color: green' if x > 0 else 'color: red', subset=['pnl']
+            ),
             use_container_width=True
         )
         
-        # Close button (Implementation would need another signal or API call)
-        # For now, just a placeholder or we can implement a specific close signal
-        # Ticket says: "Кнопка 'Close Position' для закрытия вручную"
-        # Since we use signals/command.txt, we might need a format like "CLOSE BTCUSDT"
-        
-        c_close = st.columns(len(positions) + 1)
-        for i, p in enumerate(positions):
-             if c_close[i].button(f"Close {p.get('symbol')}", key=f"close_{i}"):
-                 send_command(f"CLOSE {p.get('symbol')}")
-                 st.toast(f"Sent close signal for {p.get('symbol')}")
-
-    else:
-        st.info("No active positions")
-    
-    st.subheader("System Logs")
-    logs = get_logs()
-    log_text = "".join(logs) if logs else "No logs available."
-    st.text_area("Log Output", log_text, height=200, key="log_output")
-    
-    # Bot Controls
-    st.markdown("---")
-    st.subheader("Bot Control")
-    
-    bot_status = get_bot_status()
-    is_running = is_daemon_running()
-    
-    st.metric("Daemon Status", "Running" if is_running else "Stopped", 
-              delta="Active" if is_running else "Inactive", 
-              delta_color="normal" if is_running else "off")
-              
-    if bot_status:
-        st.json(bot_status, expanded=False)
-
-    c_start, c_stop = st.columns(2)
-    
-    # Start Logic
-    if c_start.button("🟢 Start Bot", use_container_width=True, disabled=is_running and bot_status.get("running", False)):
-        if not is_running:
-            start_bot_daemon()
-            st.toast("Starting Daemon...")
-            time.sleep(2) # Wait for it to come up
-        
-        send_command("START")
-        st.success("Signal sent: START")
-        time.sleep(1)
-        st.rerun()
-
-    if c_stop.button("🔴 Stop Bot", use_container_width=True):
-        send_command("STOP")
-        st.error("Signal sent: STOP")
-        time.sleep(1)
-        st.rerun()
-        
-    if st.button("⏸ Pause Bot", use_container_width=True):
-        send_command("PAUSE")
-        st.info("Signal sent: PAUSE")
-
-        
-    # Auto-refresh at the end
-    if auto_refresh:
-        time.sleep(1)
-        st.rerun()
+        # Export
+        csv = trades.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "Download CSV",
+            csv,
+            "trades.csv",
+            "text/csv",
+            key='download-csv'
+        )
 
 elif mode == "Backtest Lab":
-    st.title("Backtest Lab")
+    st.title("Backtest Lab 🧪")
     
-    with st.expander("Configuration", expanded=True):
-        with st.form("bt_form"):
-            c1, c2, c3, c4, c5 = st.columns(5)
-            # Defaulting to Bybit only as per requirements
-            data_source = c1.selectbox("Source", ["Bybit"]) 
-            bt_symbol = c2.text_input("Symbol", selected_symbol)
-            
-            bt_opts = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
-            def_idx = bt_opts.index(primary_timeframe) if primary_timeframe in bt_opts else 4
-            
-            bt_interval = c3.selectbox("Interval", bt_opts, index=def_idx)
-            bt_limit = c4.slider("Len", 100, 1000, 500)
-            debug_mode = c5.checkbox("Debug", value=False)
-            
-            run_bt = st.form_submit_button("Run Simulation")
-            
-    if run_bt:
-        with st.spinner(f"Backtesting {bt_symbol} on {bt_interval} via {data_source}..."):
-            engine = BacktestEngine(
-                api_key=BYBIT_API_KEY, 
-                api_secret=BYBIT_API_SECRET,
-                active_timeframes=st.session_state.active_timeframes,
-                data_source=data_source
-            )
-            
-            # Apply UI Settings to Backtest Engine
-            engine.scoring.update_weights_from_groups(g_weights, s_weights)
-            engine.scoring.update_signal_parameters(sig_long, sig_short, sig_conf)
-            engine.risk.update_parameters(
-                max_pos_size=risk_pos,
-                max_risk_pct=risk_pct/100.0,
-                leverage=leverage,
-                tp_mults=[tp1, tp2, tp3],
-                sl_mult=sl_mult
-            )
-            
-            results = engine.run(bt_symbol, bt_interval, bt_limit, debug=debug_mode)
-            
-            # Display connection status
-            status = getattr(engine.fetcher, 'status', 'Unknown')
-            status_color = "green" if status == "Connected" else "orange" if status == "Using Cache" else "red"
-            st.markdown(f"**Connection Status:** :{status_color}[{status}]")
-            
-            if "error" in results:
-                st.error(results['error'])
-            else:
-                st.success("Backtest Complete")
+    # Configuration
+    with st.expander("Backtest Settings", expanded=True):
+        col1, col2 = st.columns(2)
+        initial_capital = col1.number_input("Initial Capital", 1000, 100000, 10000)
+        bt_symbol = col2.text_input("Symbol", "BTCUSDT")
+        
+        days = st.slider("Days to Backtest", 1, 365, 30)
+        
+        if st.button("Run Backtest"):
+            with st.spinner("Running backtest..."):
+                # Fetch Data
+                # Note: This uses the same fetcher as live mode, ensuring consistency
+                # In a real scenario, we might want to fetch a longer history or use a specific date range
+                
+                # For this demo, we use the fetcher directly
+                fetcher = service.fetcher
+                
+                # Fetch more data for backtesting
+                # We need to bypass the service cache or use a dedicated method
+                # The engine currently expects a fetcher
+                
+                engine = BacktestEngine(fetcher, initial_capital=initial_capital)
+                
+                # Run
+                results = engine.run(
+                    symbol=bt_symbol,
+                    start_time=int((datetime.now() - timedelta(days=days)).timestamp() * 1000),
+                    end_time=int(datetime.now().timestamp() * 1000),
+                    timeframes=st.session_state.active_timeframes
+                )
+                
+                # Display Results
+                st.success("Backtest Complete!")
                 
                 # Metrics
                 m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Total Return", f"{results['total_return_pct']:.2f}%")
+                m2.metric("Win Rate", f"{results['win_rate']:.1f}%")
+                m3.metric("Profit Factor", f"{results['profit_factor']:.2f}")
+                m4.metric("Max Drawdown", f"{results['max_drawdown_pct']:.2f}%")
                 
-                total_pnl = results.get('total_pnl', 0.0)
-                initial_balance = results.get('initial_balance', 10000.0)
-                pnl_pct = (total_pnl / initial_balance) * 100
+                # Equity Curve
+                equity_df = pd.DataFrame(results['equity_curve'], columns=['time', 'equity'])
+                equity_df['time'] = pd.to_datetime(equity_df['time'], unit='ms')
+                st.line_chart(equity_df.set_index('time')['equity'])
                 
-                m1.metric("Total PnL", f"${total_pnl:.2f}", delta=f"{pnl_pct:.2f}%")
-                m2.metric("Win Rate", f"{results.get('win_rate', 0.0):.1f}%")
-                m3.metric("Trades", results.get('trade_count', 0))
-                m4.metric("Final Balance", f"${results.get('final_balance', 0.0):.2f}")
-                
-                # Visuals
-                trades_data = results.get('trades', [])
-                trades_df = pd.DataFrame(trades_data)
-                
-                st.subheader("Price Chart with Signals")
-                bt_data = results.get('data', pd.DataFrame())
-                if not bt_data.empty:
-                     render_tradingview_chart(bt_data, trades=trades_data, height=600)
-
-                st.subheader("Equity Curve")
-                equity_curve = results.get('equity_curve', [])
-                if equity_curve:
-                    st.line_chart([initial_balance] + equity_curve)
-                else:
-                    st.info("No equity curve to display (no trades).")
-                
+                # Trade List
+                trades_df = pd.DataFrame(results['trades'])
                 if not trades_df.empty:
                     st.subheader("Trade History")
-                    
-                    # Style the dataframe
-                    st.dataframe(
-                        trades_df.style.format({
-                            'entry_price': '{:.2f}',
-                            'exit_price': '{:.2f}',
-                            'pnl': '{:.2f}',
-                            'balance': '{:.2f}',
-                            'return_pct': '{:.2f}%'
-                        })
-                    )
-                else:
-                    st.warning("No trades were executed with the current strategy.")
-
-                # Debug Logs
-                if debug_mode:
-                    st.subheader("Backtest Debug Logs")
-                    logs = results.get('debug_logs', [])
-                    if logs:
-                        st.text_area("Detailed Logs", "\n".join(logs), height=300)
-                    else:
-                        st.info("No debug logs generated.")
+                    st.dataframe(trades_df)
