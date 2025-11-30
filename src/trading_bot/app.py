@@ -356,9 +356,9 @@ if mode == "Live Dashboard":
     data = service.get_data()
     
     # Auto-refresh logic
-    auto_refresh = st.sidebar.checkbox("Auto-refresh (1s)", value=True)
+    auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=True)
     if auto_refresh:
-        time.sleep(1)
+        time.sleep(30)
         st.rerun()
 
     with col_status:
@@ -513,7 +513,7 @@ if mode == "Live Dashboard":
             margin=dict(l=20, r=20, t=30, b=20),
             showlegend=True
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"pos_viz_{symbol}")
         
         if st.button("CLOSE POSITION", type="primary"):
             send_command(f"CLOSE {symbol}")
@@ -532,7 +532,12 @@ if mode == "Live Dashboard":
         st.subheader("Price History")
         if not df.empty:
             risk_metrics = data.get("risk_metrics", {})
-            render_tradingview_chart(df, active_risk=risk_metrics, height=500)
+            render_tradingview_chart(
+                df, 
+                active_risk=risk_metrics, 
+                height=500,
+                key=f"chart_{primary_timeframe}_{selected_symbol}"
+            )
             
     with c2:
         st.subheader("Signal Details")

@@ -2,6 +2,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
+import streamlit as st
 from typing import List, Dict, Any, Optional
 
 try:
@@ -9,6 +10,7 @@ try:
 except ImportError:
     renderLightweightCharts = None
 
+@st.cache_data
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate technical indicators for the chart:
@@ -234,7 +236,8 @@ def plot_candle_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, act
         height=height,
         hovermode='x unified',
         template='plotly_dark', 
-        margin=dict(l=10, r=10, t=30, b=10)
+        margin=dict(l=10, r=10, t=30, b=10),
+        uirevision='constant' # Preserve zoom/pan state on updates
     )
     
     return fig
@@ -272,176 +275,19 @@ def plot_volume_chart(df: pd.DataFrame, height: int = 200) -> go.Figure:
     
     return fig
 
-def render_tradingview_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, active_risk: Optional[Dict] = None, height: int = 500):
+def render_tradingview_chart(df: pd.DataFrame, trades: Optional[List[Dict]] = None, active_risk: Optional[Dict] = None, height: int = 500, key: str = "chart"):
     """
-    Render a TradingView-like chart using streamlit-lightweight-charts.
+    Render a TradingView-like chart using Plotly (optimized for Streamlit).
     """
-    import streamlit as st
-    
     if df.empty:
         st.warning("No data to display.")
         return
 
-    if renderLightweightCharts is None:
-        st.error("Lightweight Charts library not found. Falling back to Plotly.")
-        # Fallback to plotly if not installed (though we should have it)
-        fig = plot_candle_chart(df, trades, active_risk, height)
-        st.plotly_chart(fig, use_container_width=True)
-        return
-
-    df = calculate_indicators(df)
+    # Use Plotly directly as requested for better control over zoom/pan state persistence
+    fig = plot_candle_chart(df, trades, active_risk, height)
     
-    # Timestamp handling: ensure unix seconds
-    if pd.api.types.is_datetime64_any_dtype(df['timestamp']):
-        df['time'] = df['timestamp'].astype(np.int64) // 10**9
-    else:
-        df['time'] = pd.to_datetime(df['timestamp']).astype(np.int64) // 10**9
-
-    # 1. Candlestick Series
-    candle_data = df[['time', 'open', 'high', 'low', 'close']].to_dict('records')
-    
-    # 2. Volume Series
-    vol_df = df[['time', 'volume', 'open', 'close']].copy()
-    vol_df['color'] = np.where(vol_df['close'] >= vol_df['open'], '#26a69a', '#ef5350')
-    vol_df = vol_df.rename(columns={'volume': 'value'})
-    volume_data = vol_df[['time', 'value', 'color']].to_dict('records')
-    
-    # 3. Indicators
-    ma20_data = df[['time', 'MA20']].dropna().rename(columns={'MA20': 'value'}).to_dict('records')
-    ma50_data = df[['time', 'MA50']].dropna().rename(columns={'MA50': 'value'}).to_dict('records')
-    
-    bb_upper = df[['time', 'BB_upper']].dropna().rename(columns={'BB_upper': 'value'}).to_dict('records')
-    bb_lower = df[['time', 'BB_lower']].dropna().rename(columns={'BB_lower': 'value'}).to_dict('records')
-    
-    st_up = df[df['ST_trend'] == 1][['time', 'ST_lower']].dropna().rename(columns={'ST_lower': 'value'}).to_dict('records')
-    st_down = df[df['ST_trend'] == -1][['time', 'ST_upper']].dropna().rename(columns={'ST_upper': 'value'}).to_dict('records')
-
-    # Markers
-    markers = []
-    if trades:
-        for t in trades:
-            try:
-                entry_ts = int(pd.to_datetime(t['entry_time']).timestamp())
-                exit_ts = int(pd.to_datetime(t['exit_time']).timestamp())
-            except:
-                continue
-                
-            markers.append({
-                "time": entry_ts,
-                "position": "belowBar" if t['type'] == 'LONG' else "aboveBar",
-                "color": "#2196F3" if t['type'] == 'LONG' else "#E91E63",
-                "shape": "arrowUp" if t['type'] == 'LONG' else "arrowDown",
-                "text": "L" if t['type'] == 'LONG' else "S"
-            })
-            
-            markers.append({
-                "time": exit_ts,
-                "position": "aboveBar" if t['type'] == 'LONG' else "belowBar",
-                "color": "#2196F3" if t['type'] == 'LONG' else "#E91E63",
-                "shape": "arrowDown" if t['type'] == 'LONG' else "arrowUp",
-                "text": f"{t['pnl']:.1f}"
-            })
-
-    # Options
-    chartOptions = {
-        "layout": {
-            "textColor": '#d1d4dc',
-            "background": {
-                "type": 'solid',
-                "color": '#131722'
-            }
-        },
-        "grid": {
-            "vertLines": {"color": "rgba(42, 46, 57, 0.5)"},
-            "horzLines": {"color": "rgba(42, 46, 57, 0.5)"}
-        },
-        "height": height,
-        "rightPriceScale": {
-            "scaleMargins": {
-                "top": 0.2, 
-                "bottom": 0.2, 
-            },
-        },
-        "timeScale": {
-            "timeVisible": True,
-            "secondsVisible": False
-        },
-        "crosshair": {
-            "mode": 1
-        }
-    }
-    
-    series = [
-        {
-            "type": 'Candlestick',
-            "data": candle_data,
-            "options": {
-                "upColor": '#26a69a',
-                "downColor": '#ef5350',
-                "borderVisible": False,
-                "wickUpColor": '#26a69a',
-                "wickDownColor": '#ef5350'
-            },
-            "markers": markers
-        },
-        {
-            "type": 'Histogram',
-            "data": volume_data,
-            "options": {
-                "priceFormat": {"type": 'volume'},
-                "priceScaleId": '', # Overlay
-                "scaleMargins": {
-                    "top": 0.8, # Push to bottom
-                    "bottom": 0,
-                }
-            }
-        },
-        {
-            "type": 'Line',
-            "data": ma20_data,
-            "options": {"color": '#ff9800', "lineWidth": 1, "title": "MA20"}
-        },
-        {
-            "type": 'Line',
-            "data": ma50_data,
-            "options": {"color": '#2196f3', "lineWidth": 1, "title": "MA50"}
-        },
-        {
-             "type": 'Line',
-             "data": bb_upper,
-             "options": {"color": 'rgba(43, 255, 255, 0.25)', "lineWidth": 1}
-        },
-        {
-             "type": 'Line',
-             "data": bb_lower,
-             "options": {"color": 'rgba(43, 255, 255, 0.25)', "lineWidth": 1}
-        },
-        {
-             "type": 'Line',
-             "data": st_up,
-             "options": {"color": '#00e676', "lineWidth": 2, "title": "SuperTrend"}
-        },
-        {
-             "type": 'Line',
-             "data": st_down,
-             "options": {"color": '#ff5252', "lineWidth": 2}
-        }
-    ]
-    
-    if active_risk:
-         if 'sl' in active_risk:
-             sl_data = [{"time": x["time"], "value": active_risk['sl']} for x in candle_data]
-             series.append({
-                 "type": 'Line',
-                 "data": sl_data,
-                 "options": {"color": '#ff1744', "lineStyle": 2, "lineWidth": 1, "title": "SL"}
-             })
-         if 'tp' in active_risk:
-             tp_data = [{"time": x["time"], "value": active_risk['tp']} for x in candle_data]
-             series.append({
-                 "type": 'Line',
-                 "data": tp_data,
-                 "options": {"color": '#00e676', "lineStyle": 2, "lineWidth": 1, "title": "TP"}
-             })
-
-    renderLightweightCharts(chartOptions, series)
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key=key
+    )
