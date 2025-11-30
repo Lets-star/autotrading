@@ -94,3 +94,51 @@ class BybitDataFetcher:
             logger.error(f"Error fetching history from Bybit: {e}")
             self.status = "Failed"
             return pd.DataFrame()
+
+    def place_order(self, symbol: str, side: str, qty: float, category: str = "linear", order_type: str = "Market") -> Dict[str, Any]:
+        """
+        Place an order on Bybit.
+        """
+        try:
+            logger.info(f"Bybit: Placing {order_type} {side} order for {qty} {symbol}")
+            response = self.session.place_order(
+                category=category,
+                symbol=symbol,
+                side=side.capitalize(),
+                orderType=order_type,
+                qty=str(qty)
+            )
+            
+            if response['retCode'] != 0:
+                logger.error(f"Bybit API Error (Place Order): {response['retMsg']}")
+                return {"success": False, "error": response['retMsg']}
+            
+            logger.info(f"Bybit: Order placed successfully: {response['result']}")
+            return {"success": True, "result": response['result']}
+        except Exception as e:
+            logger.error(f"Error placing order on Bybit: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_positions(self, symbol: str = None, category: str = "linear") -> List[Dict[str, Any]]:
+        """
+        Get current positions.
+        """
+        try:
+            kwargs = {"category": category, "settleCoin": "USDT"}
+            if symbol:
+                kwargs["symbol"] = symbol
+                
+            response = self.session.get_positions(**kwargs)
+            
+            if response['retCode'] != 0:
+                logger.error(f"Bybit API Error (Get Positions): {response['retMsg']}")
+                return []
+            
+            positions = response['result']['list']
+            # Filter for active positions (size > 0)
+            active_positions = [p for p in positions if float(p['size']) > 0]
+            
+            return active_positions
+        except Exception as e:
+            logger.error(f"Error getting positions from Bybit: {e}")
+            return []
