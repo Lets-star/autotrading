@@ -524,6 +524,14 @@ def main():
         # 1. Set Page Config (Must be first Streamlit command)
         st.set_page_config(page_title="Trading Bot Dashboard", layout="wide", page_icon="📈")
         logger.info("Page config set")
+        
+        # Initialize session state variables
+        if "selected_timeframe" not in st.session_state:
+            st.session_state.selected_timeframe = "1h"
+        if "selected_pair" not in st.session_state:
+            st.session_state.selected_pair = "BTCUSDT"
+        if "active_timeframes" not in st.session_state:
+            st.session_state.active_timeframes = ["1h", "4h", "1d"]
 
         print("1. Loading settings...")
         logger.info("Loading settings...")
@@ -555,16 +563,11 @@ def main():
         
         st.sidebar.markdown("---")
         st.sidebar.subheader("Settings")
-        selected_symbol = st.sidebar.text_input("Symbol", "BTCUSDT", key="selected_pair")
+        selected_symbol = st.sidebar.text_input("Symbol", value="BTCUSDT", key="selected_pair")
 
         # Timeframe Selector
-        if "active_timeframes" not in st.session_state:
-            st.session_state.active_timeframes = ["1h", "4h", "1d"]
-
-        if "selected_timeframe" not in st.session_state:
-            st.session_state.selected_timeframe = "1h"
-
         available_timeframes = ["5m", "15m", "30m", "1h", "3h", "4h", "1d", "1week"]
+        
         selected_timeframes = st.sidebar.multiselect(
             "Active Timeframes (MTF)",
             available_timeframes,
@@ -574,13 +577,17 @@ def main():
         st.session_state.active_timeframes = selected_timeframes
 
         # Primary Timeframe Selector
+        try:
+            tf_index = available_timeframes.index(st.session_state.selected_timeframe)
+        except ValueError:
+            tf_index = 3 # Default to 1h
+            
         primary_timeframe = st.sidebar.selectbox(
             "Primary Timeframe", 
             available_timeframes, 
-            index=available_timeframes.index("1h") if "1h" in available_timeframes else 0,
+            index=tf_index,
             key="selected_timeframe"
         )
-        st.session_state.selected_timeframe = primary_timeframe
 
         # Update service settings if changed
         if service.symbol != selected_symbol:
