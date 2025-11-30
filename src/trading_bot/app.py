@@ -4,13 +4,85 @@ import numpy as np
 import json
 import os
 import time
+import subprocess
+import sys
+from datetime import datetime
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.data_feeds.market_data_service import MarketDataService
 from trading_bot.ui.charting import plot_candle_chart, plot_volume_chart, render_tradingview_chart
 
 # -- Constants & Helpers --
+DAEMON_SCRIPT = "scripts/bot_daemon.py"
+STATUS_FILE = "signals/status.json"
+COMMAND_FILE = "signals/command.txt"
+POSITIONS_FILE = "data/positions.json"
+LOG_FILE = "logs/bot.log"
 PRESETS_FILE = "presets.json"
+
+def is_daemon_running():
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, 'r') as f:
+                status = json.load(f)
+            pid = status.get('pid')
+            if pid:
+                # Check if process exists
+                try:
+                    os.kill(pid, 0)
+                    # Also check if timestamp is recent (e.g. within 10 seconds)
+                    last_update = status.get('last_update')
+                    if last_update:
+                        dt = datetime.fromisoformat(last_update)
+                        if (datetime.now() - dt).total_seconds() > 30:
+                            return False # Stale
+                    return True
+                except OSError:
+                    return False
+        except:
+            return False
+    return False
+
+def start_bot_daemon():
+    if not is_daemon_running():
+        # Start the process in background
+        # Ensure we are in the project root
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        subprocess.Popen([sys.executable, DAEMON_SCRIPT], cwd=root_dir)
+        time.sleep(2) # Wait for startup
+
+def send_command(cmd):
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(COMMAND_FILE), exist_ok=True)
+    with open(COMMAND_FILE, 'w') as f:
+        f.write(cmd)
+
+def get_bot_status():
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def get_positions():
+    if os.path.exists(POSITIONS_FILE):
+        try:
+            with open(POSITIONS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+def get_logs(lines=50):
+    if os.path.exists(LOG_FILE):
+        try:
+            with open(LOG_FILE, 'r') as f:
+                return f.readlines()[-lines:]
+        except:
+            pass
+    return []
 
 def load_presets():
     if os.path.exists(PRESETS_FILE):
@@ -378,19 +450,106 @@ if mode == "Live Dashboard":
             
     # 3. Active Positions & Logs
     st.subheader("Active Positions")
-    # Mock data since we don't have a live DB connection in this scope
-    st.info("No active positions (Mock)")
+    
+    positions = get_positions()
+    if positions:
+        # Columns: Pair, Entry Price, Current Price, TP1, TP2, TP3, SL, PnL, PnL%
+        # We need to map Bybit fields to these
+        pos_data = []
+        for p in positions:
+            entry = float(p.get('avgPrice', 0))
+            curr = float(p.get('markPrice', 0))
+            pnl = float(p.get('unrealisedPnl', 0))
+            size = float(p.get('size', 0)) * float(p.get('avgPrice', 0)) # Approximate value
+            pnl_pct = (pnl / size * 100) if size > 0 else 0.0
+            
+            pos_data.append({
+                "Pair": p.get('symbol'),
+                "Side": p.get('side'),
+                "Size": p.get('size'),
+                "Entry Price": entry,
+                "Current Price": curr,
+                "SL": p.get('stopLoss', '-'),
+                "TP": p.get('takeProfit', '-'),
+                "PnL": pnl,
+                "PnL %": pnl_pct
+            })
+        
+        pos_df = pd.DataFrame(pos_data)
+        
+        # Color styling for PnL
+        def color_pnl(val):
+            color = 'green' if val > 0 else 'red' if val < 0 else 'grey'
+            return f'color: {color}'
+
+        st.dataframe(
+            pos_df.style.map(color_pnl, subset=['PnL', 'PnL %'])
+                        .format({
+                            'Entry Price': '{:.4f}',
+                            'Current Price': '{:.4f}',
+                            'PnL': '{:.4f}',
+                            'PnL %': '{:.2f}%'
+                        }),
+            use_container_width=True
+        )
+        
+        # Close button (Implementation would need another signal or API call)
+        # For now, just a placeholder or we can implement a specific close signal
+        # Ticket says: "Кнопка 'Close Position' для закрытия вручную"
+        # Since we use signals/command.txt, we might need a format like "CLOSE BTCUSDT"
+        
+        c_close = st.columns(len(positions) + 1)
+        for i, p in enumerate(positions):
+             if c_close[i].button(f"Close {p.get('symbol')}", key=f"close_{i}"):
+                 send_command(f"CLOSE {p.get('symbol')}")
+                 st.toast(f"Sent close signal for {p.get('symbol')}")
+
+    else:
+        st.info("No active positions")
     
     st.subheader("System Logs")
-    st.text_area("Log Output", "Bot started...\nConnected to Bybit...\nListening for signals...", height=100)
+    logs = get_logs()
+    log_text = "".join(logs) if logs else "No logs available."
+    st.text_area("Log Output", log_text, height=200, key="log_output")
     
     # Bot Controls
     st.markdown("---")
+    st.subheader("Bot Control")
+    
+    bot_status = get_bot_status()
+    is_running = is_daemon_running()
+    
+    st.metric("Daemon Status", "Running" if is_running else "Stopped", 
+              delta="Active" if is_running else "Inactive", 
+              delta_color="normal" if is_running else "off")
+              
+    if bot_status:
+        st.json(bot_status, expanded=False)
+
     c_start, c_stop = st.columns(2)
-    if c_start.button("🟢 Start Bot", use_container_width=True):
-        st.success("Signal sent to start bot daemon.")
+    
+    # Start Logic
+    if c_start.button("🟢 Start Bot", use_container_width=True, disabled=is_running and bot_status.get("running", False)):
+        if not is_running:
+            start_bot_daemon()
+            st.toast("Starting Daemon...")
+            time.sleep(2) # Wait for it to come up
+        
+        send_command("START")
+        st.success("Signal sent: START")
+        time.sleep(1)
+        st.rerun()
+
     if c_stop.button("🔴 Stop Bot", use_container_width=True):
-        st.error("Signal sent to stop bot daemon.")
+        send_command("STOP")
+        st.error("Signal sent: STOP")
+        time.sleep(1)
+        st.rerun()
+        
+    if st.button("⏸ Pause Bot", use_container_width=True):
+        send_command("PAUSE")
+        st.info("Signal sent: PAUSE")
+
         
     # Auto-refresh at the end
     if auto_refresh:
