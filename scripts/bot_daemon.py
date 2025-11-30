@@ -22,6 +22,11 @@ except ImportError:
     from scripts.signal_handler import SignalHandler
     from scripts.position_tracker import PositionTracker
 
+try:
+    import pandas_ta as ta
+except ImportError:
+    pass
+
 # Setup logging
 log_file = 'logs/bot.log'
 os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -73,20 +78,80 @@ class BotDaemon:
         
         signal = self.scoring.calculate_signals(df, mtf_data=mtf_data)
         
-        # 3. Execution Logic (Simplified for now)
+        # 3. Execution Logic
         action = signal.get('action', 'NEUTRAL')
         score = signal.get('score', 0.0)
         
-        # Only log if it's a significant signal change or periodically?
-        # For now log every logic execution might be too noisy, but requirement says "Log all events".
-        # Let's log if action is not NEUTRAL.
         if action != 'NEUTRAL':
-            logger.info(f"Signal calculated: {action} (Score: {score:.2f})")
+            logger.info(f"Signal Generated: {action} @ Score {score:.2f}")
+            logger.info(f"Thresholds -> Long: {self.scoring.long_threshold}, Short: {self.scoring.short_threshold}")
         
-        # TODO: Implement actual trade execution based on signal
         if "BUY" in action or "SELL" in action:
-             # logger.info(f"OPEN POSITION: {action} - Position entry logic would go here.")
-             pass
+            # Check if we already have a position
+            positions = self.tracker.fetch_positions() 
+            if any(p['symbol'] == self.symbol for p in positions):
+                logger.info(f"Position already open for {self.symbol}. Skipping.")
+                return
+
+            # Prepare Market Data for Risk
+            current_close = float(df.iloc[-1]['close'])
+            volume_24h = float(df['volume'].sum()) # Approx
+            
+            atr_val = 0.0
+            try:
+                if 'ta' in globals() and ta is not None:
+                    atr_series = df.ta.atr(length=14)
+                    if atr_series is not None and not atr_series.empty:
+                        atr_val = float(atr_series.iloc[-1])
+                else:
+                    atr_val = float((df['high'] - df['low']).mean())
+            except Exception as e:
+                logger.warning(f"ATR calculation failed: {e}")
+
+            market_data = {
+                'volume_24h': volume_24h,
+                'atr': atr_val,
+                'close': current_close
+            }
+            
+            # Use settings for risk limit amount if available, otherwise default to 1000
+            amount = getattr(settings, 'risk_limit_amount', 1000.0)
+            
+            order_params = {
+                "amount": amount,
+                "symbol": self.symbol
+            }
+            
+            logger.info(f"Checking Risk for {action} with amount {amount}...")
+            allowed, reason = self.risk.validate_order(order_params, market_data)
+            
+            if not allowed:
+                logger.warning(f"❌ Risk rejected: {reason}")
+                return
+                
+            logger.info(f"✅ Risk approved. Opening position...")
+            
+            # Execute
+            side = "Buy" if "BUY" in action else "Sell"
+            if current_close > 0:
+                qty = amount / current_close 
+                qty = round(qty, 3) 
+                
+                result = self.fetcher.place_order(
+                    symbol=self.symbol,
+                    side=side,
+                    qty=qty
+                )
+                
+                if result.get('success'):
+                    logger.info(f"Position opened: {self.symbol} {side} entry={current_close} size={qty}")
+                    # Update status immediately
+                    self.signal_handler.update_status("Running", {
+                        "last_trade": f"{side} {self.symbol} @ {current_close}",
+                        "last_trade_time": datetime.now().isoformat()
+                    })
+                else:
+                    logger.error(f"Failed to open position: {result.get('error')}")
 
     def run(self):
         logger.info("Bot daemon initialized")
