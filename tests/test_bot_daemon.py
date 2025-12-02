@@ -262,3 +262,25 @@ def test_daemon_ignores_signals_when_stopped(temp_dir):
     
     # No position should be opened
     assert len(daemon.positions) == 0
+
+
+def test_run_daemon_helper(monkeypatch, temp_dir):
+    """Ensure run_daemon instantiates BybitBotDaemon and calls run_forever."""
+
+    calls = {"run_forever": False, "base_dir": None}
+
+    class DummyDaemon:
+        def __init__(self, base_dir=None, **kwargs):
+            calls["base_dir"] = base_dir
+
+        def run_forever(self):
+            calls["run_forever"] = True
+
+    monkeypatch.setattr("trading_bot.bot_daemon.BybitBotDaemon", DummyDaemon)
+
+    from trading_bot.bot_daemon import run_daemon
+
+    run_daemon(base_dir=temp_dir)
+
+    assert calls["base_dir"] == temp_dir
+    assert calls["run_forever"] is True

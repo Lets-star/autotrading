@@ -13,10 +13,12 @@ The Bybit Bot Daemon is a background process that manages trading positions on B
    - Position management
    - Signal processing
    - Bybit API integration
+   - Exposes a reusable `run_daemon()` helper and CLI entry point (`python -m trading_bot.bot_daemon`)
 
 2. **Entry Script** (`scripts/bot_daemon.py`)
    - Spawned by the Streamlit UI
-   - Runs the daemon in the background
+   - Thin wrapper that sets up Python path and invokes `run_daemon()` from the daemon module
+   - Ensures daemon is started with the correct `base_dir` (project root)
 
 3. **UI Integration** (`src/trading_bot/app.py`)
    - Start/Stop daemon controls
@@ -50,6 +52,20 @@ From the Streamlit UI sidebar:
 
 1. Click "Stop Bot" to pause signal processing (daemon stays alive)
 2. Or restart the app to terminate the process
+
+### Running the Daemon Manually
+
+For debugging or CLI usage, the daemon can be launched outside of Streamlit:
+
+```bash
+# Entry script wrapper
+python scripts/bot_daemon.py
+
+# Direct module execution (uses `run_daemon()`)
+python -m trading_bot.bot_daemon
+```
+
+Both approaches automatically target the project root so there is no need for hard-coded absolute paths.
 
 ### Simulation Mode
 
@@ -182,6 +198,45 @@ daemon = BybitBotDaemon(
     position_sync_interval=5.0,
 )
 ```
+
+## Path Resolution and Portability
+
+### Key Principle: No Hard-Coded Absolute Paths
+
+The daemon integration is designed to work across different environments without modifications:
+
+- **✅ Portable:** All paths are computed at runtime relative to `PROJECT_ROOT`
+- **✅ No External Dependencies:** The daemon script is always inside the repository (`scripts/bot_daemon.py`)
+- **✅ Absolute Path Validation:** The UI verifies `DAEMON_SCRIPT` and `PROJECT_ROOT` are absolute before spawning
+- **❌ Never Use:** Hard-coded paths like `D:\\Programms\\scripts\\bot_daemon.py` or relative strings like `"scripts/bot_daemon.py"`
+
+### How PROJECT_ROOT is Determined
+
+```python
+# In app.py
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
+```
+
+This works because:
+- `__file__` is `src/trading_bot/app.py`
+- Two levels up (`../..`) leads to the repository root
+- `os.path.abspath()` ensures it's an absolute path
+
+### Path Construction
+
+All paths are built using `os.path.join()`:
+
+```python
+SCRIPTS_DIR = os.path.join(PROJECT_ROOT, "scripts")
+DAEMON_SCRIPT = os.path.join(SCRIPTS_DIR, "bot_daemon.py")
+SIGNALS_DIR = os.path.join(PROJECT_ROOT, "signals")
+```
+
+This ensures:
+- Cross-platform compatibility (Windows, Linux, macOS)
+- Absolute paths that work regardless of working directory
+- No fragile relative references
 
 ## Security Notes
 

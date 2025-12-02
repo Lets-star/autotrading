@@ -449,4 +449,19 @@ class BybitBotDaemon:
         self._stop_requested = True
 
 
-__all__ = ["BybitBotDaemon"]
+def run_daemon(base_dir: Optional[str] = None) -> None:
+    """Start a BybitBotDaemon instance and block until it stops."""
+    daemon = BybitBotDaemon(base_dir=base_dir)
+    daemon.run_forever()
+
+
+def main() -> None:
+    """CLI entry point so the daemon can run via `python -m trading_bot.bot_daemon`."""
+    run_daemon()
+
+
+if __name__ == "__main__":  # pragma: no cover - manual execution helper
+    main()
+
+
+__all__ = ["BybitBotDaemon", "run_daemon"]
