@@ -10,7 +10,7 @@ import json
 # -- Early Logging Setup --
 try:
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(current_dir, "../../.."))
+    project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
     log_dir = os.path.join(project_root, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "app_debug.log")
@@ -35,6 +35,10 @@ try:
 except Exception as e:
     print(f"CRITICAL: Logging setup failed: {e}")
     traceback.print_exc()
+
+if "project_root" not in globals():
+    fallback_current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(fallback_current_dir, "..", ".."))
 
 # -- Imports --
 try:
@@ -76,13 +80,18 @@ except Exception as e:
     sys.exit(1)
 
 # -- Constants & Helpers --
-DAEMON_SCRIPT = "scripts/bot_daemon.py"
-STATUS_FILE = "signals/status.json"
-COMMAND_FILE = "signals/command.txt"
-POSITIONS_FILE = "data/positions.json"
-TRADES_FILE = "data/trades.csv"
-LOG_FILE = "logs/bot.log"
-PRESETS_FILE = "presets.json"
+PROJECT_ROOT = project_root
+SIGNALS_DIR = os.path.join(PROJECT_ROOT, "signals")
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+LOGS_DIR = os.path.join(PROJECT_ROOT, "logs")
+SCRIPTS_DIR = os.path.join(PROJECT_ROOT, "scripts")
+DAEMON_SCRIPT = os.path.join(SCRIPTS_DIR, "bot_daemon.py")
+STATUS_FILE = os.path.join(SIGNALS_DIR, "status.json")
+COMMAND_FILE = os.path.join(SIGNALS_DIR, "command.txt")
+POSITIONS_FILE = os.path.join(DATA_DIR, "positions.json")
+TRADES_FILE = os.path.join(DATA_DIR, "trades.csv")
+LOG_FILE = os.path.join(LOGS_DIR, "bot.log")
+PRESETS_FILE = os.path.join(PROJECT_ROOT, "presets.json")
 DAEMON_STALE_THRESHOLD = 15  # seconds
 
 def is_daemon_running():
@@ -104,16 +113,50 @@ def start_bot_daemon():
         return False, "Failed to send start command"
     
     # Spawn a new process
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    logger.info(f"Starting daemon from: {DAEMON_SCRIPT}")
+    logger.info(f"Project root: {PROJECT_ROOT}")
+    
+    # Verify the daemon script exists
+    if not os.path.exists(DAEMON_SCRIPT):
+        error_msg = f"Daemon script not found at: {DAEMON_SCRIPT}"
+        logger.error(error_msg)
+        return False, error_msg
+    
     try:
-        subprocess.Popen([sys.executable, DAEMON_SCRIPT], cwd=root_dir)
+        # Launch the daemon process
+        process = subprocess.Popen(
+            [sys.executable, DAEMON_SCRIPT],
+            cwd=PROJECT_ROOT,
+        )
+        logger.info(f"Daemon process started with PID: {process.pid}")
+        
+        # Give it time to initialize
         time.sleep(2)
+        
+        # Verify the daemon is actually running
+        health_check = get_daemon_health()
+        if not health_check["alive"]:
+            error_msg = f"Daemon failed to start: {health_check.get('error', 'Unknown error')}"
+            logger.error(error_msg)
+            return False, error_msg
+        
+        # Send START command to activate it
         if send_command("ACTION=START"):
-            return True, "Daemon process launched"
-        return False, "Daemon launched but start command failed"
+            logger.info("Daemon launched and START command sent successfully")
+            return True, "Daemon process launched successfully"
+        else:
+            logger.warning("Daemon launched but START command failed")
+            return False, "Daemon launched but start command failed (please retry)"
+            
+    except FileNotFoundError as e:
+        error_msg = f"Python executable or script not found: {e}"
+        logger.error(error_msg)
+        return False, error_msg
     except Exception as e:
-        logger.error(f"Failed to launch daemon: {e}")
-        return False, f"Launch failed: {e}"
+        error_msg = f"Failed to launch daemon: {e}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return False, error_msg
 
 def send_command(cmd):
     """Write a command file for the daemon to pick up."""
