@@ -15,12 +15,11 @@ src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from trading_bot.bot_daemon import BybitBotDaemon
+from trading_bot.bot_daemon import run_daemon
 
 
 def main() -> None:
-    daemon = BybitBotDaemon(base_dir=project_root)
-    daemon.run_forever()
+    run_daemon(base_dir=project_root)
 
 
 if __name__ == "__main__":

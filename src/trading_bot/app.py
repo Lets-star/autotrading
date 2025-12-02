@@ -115,15 +115,30 @@ def start_bot_daemon():
     # Spawn a new process
     logger.info(f"Starting daemon from: {DAEMON_SCRIPT}")
     logger.info(f"Project root: {PROJECT_ROOT}")
+    logger.info(f"Python executable: {sys.executable}")
+    logger.info(f"Current working dir: {os.getcwd()}")
+    
+    # Verify paths are absolute
+    if not os.path.isabs(DAEMON_SCRIPT):
+        error_msg = f"DAEMON_SCRIPT must be absolute path, got: {DAEMON_SCRIPT}"
+        logger.error(error_msg)
+        return False, error_msg
+    
+    if not os.path.isabs(PROJECT_ROOT):
+        error_msg = f"PROJECT_ROOT must be absolute path, got: {PROJECT_ROOT}"
+        logger.error(error_msg)
+        return False, error_msg
     
     # Verify the daemon script exists
     if not os.path.exists(DAEMON_SCRIPT):
         error_msg = f"Daemon script not found at: {DAEMON_SCRIPT}"
         logger.error(error_msg)
+        logger.error(f"Checked absolute path: {os.path.abspath(DAEMON_SCRIPT)}")
         return False, error_msg
     
     try:
-        # Launch the daemon process
+        # Launch the daemon process using the entry script
+        # This approach ensures PYTHONPATH is handled correctly by the script itself
         process = subprocess.Popen(
             [sys.executable, DAEMON_SCRIPT],
             cwd=PROJECT_ROOT,
@@ -138,6 +153,7 @@ def start_bot_daemon():
         if not health_check["alive"]:
             error_msg = f"Daemon failed to start: {health_check.get('error', 'Unknown error')}"
             logger.error(error_msg)
+            logger.error("Check logs/bot.log for daemon startup errors")
             return False, error_msg
         
         # Send START command to activate it
