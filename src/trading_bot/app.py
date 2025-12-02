@@ -13,12 +13,13 @@ from trading_bot.data_feeds.market_data_service import MarketDataService
 from trading_bot.ui.charting import plot_candle_chart, plot_volume_chart, render_tradingview_chart
 
 # -- Constants & Helpers --
-DAEMON_SCRIPT = "scripts/bot_daemon.py"
-STATUS_FILE = "signals/status.json"
-COMMAND_FILE = "signals/command.txt"
-POSITIONS_FILE = "data/positions.json"
-LOG_FILE = "logs/bot.log"
-PRESETS_FILE = "presets.json"
+# Compute PROJECT_ROOT: two levels up from src/trading_bot/app.py
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+STATUS_FILE = os.path.join(PROJECT_ROOT, "signals/status.json")
+COMMAND_FILE = os.path.join(PROJECT_ROOT, "signals/command.txt")
+POSITIONS_FILE = os.path.join(PROJECT_ROOT, "data/positions.json")
+LOG_FILE = os.path.join(PROJECT_ROOT, "logs/bot.log")
+PRESETS_FILE = os.path.join(PROJECT_ROOT, "presets.json")
 
 def is_daemon_running():
     if os.path.exists(STATUS_FILE):
@@ -44,12 +45,32 @@ def is_daemon_running():
     return False
 
 def start_bot_daemon():
+    """Start the internal bot daemon as a Python module."""
     if not is_daemon_running():
-        # Start the process in background
-        # Ensure we are in the project root
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-        subprocess.Popen([sys.executable, DAEMON_SCRIPT], cwd=root_dir)
-        time.sleep(2) # Wait for startup
+        try:
+            # Set up environment with correct PYTHONPATH
+            env = os.environ.copy()
+            # Add src directory to PYTHONPATH so trading_bot module is importable
+            src_path = os.path.join(PROJECT_ROOT, "src")
+            if "PYTHONPATH" in env:
+                env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
+            else:
+                env["PYTHONPATH"] = src_path
+            
+            # Start daemon as a module
+            subprocess.Popen(
+                [sys.executable, "-m", "trading_bot.bot_daemon"],
+                cwd=PROJECT_ROOT,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(2) # Wait for startup
+            return True
+        except Exception as e:
+            st.error(f"Failed to start daemon: {e}")
+            return False
+    return True
 
 def send_command(cmd):
     # Ensure directory exists
@@ -531,9 +552,18 @@ if mode == "Live Dashboard":
     # Start Logic
     if c_start.button("🟢 Start Bot", use_container_width=True, disabled=is_running and bot_status.get("running", False)):
         if not is_running:
-            start_bot_daemon()
-            st.toast("Starting Daemon...")
-            time.sleep(2) # Wait for it to come up
+            success = start_bot_daemon()
+            if success:
+                st.toast("Daemon starting...")
+                time.sleep(2) # Wait for it to come up
+                # Verify it started
+                if is_daemon_running():
+                    st.success("Daemon started successfully!")
+                else:
+                    st.warning("Daemon may not have started properly. Check logs.")
+            else:
+                st.error("Failed to start daemon. Check logs for details.")
+                st.stop()
         
         send_command("START")
         st.success("Signal sent: START")
