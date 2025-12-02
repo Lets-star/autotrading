@@ -83,41 +83,120 @@ POSITIONS_FILE = "data/positions.json"
 TRADES_FILE = "data/trades.csv"
 LOG_FILE = "logs/bot.log"
 PRESETS_FILE = "presets.json"
+DAEMON_STALE_THRESHOLD = 15  # seconds
 
 def is_daemon_running():
-    if os.path.exists(STATUS_FILE):
-        try:
-            with open(STATUS_FILE, 'r') as f:
-                status = json.load(f)
-            pid = status.get('pid')
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    last_update = status.get('last_update')
-                    if last_update:
-                        dt = datetime.fromisoformat(last_update)
-                        if (datetime.now() - dt).total_seconds() > 30:
-                            return False 
-                    return True
-                except OSError:
-                    return False
-        except:
-            return False
-    return False
+    """Return True if the daemon reports an active running state."""
+    return get_daemon_health()["running"]
+
 
 def start_bot_daemon():
-    if not is_daemon_running():
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    """Ensure the daemon process is running and processing signals."""
+    health = get_daemon_health()
+    
+    # If the daemon process is alive but idle, just send a START command
+    if health["alive"]:
+        if health["running"]:
+            return True, "Daemon already running"
+        sent = send_command("ACTION=START")
+        if sent:
+            return True, "Start command sent to daemon"
+        return False, "Failed to send start command"
+    
+    # Spawn a new process
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    try:
         subprocess.Popen([sys.executable, DAEMON_SCRIPT], cwd=root_dir)
-        time.sleep(2) 
-        send_command("ACTION=START")
+        time.sleep(2)
+        if send_command("ACTION=START"):
+            return True, "Daemon process launched"
+        return False, "Daemon launched but start command failed"
+    except Exception as e:
+        logger.error(f"Failed to launch daemon: {e}")
+        return False, f"Launch failed: {e}"
 
 def send_command(cmd):
+    """Write a command file for the daemon to pick up."""
     os.makedirs(os.path.dirname(COMMAND_FILE), exist_ok=True)
-    with open(COMMAND_FILE, 'w') as f:
-        f.write(cmd)
+    try:
+        with open(COMMAND_FILE, 'w') as f:
+            f.write(cmd.strip() + "\n")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write command '{cmd}': {e}")
+        return False
+
+
+def get_daemon_health():
+    """Return detailed daemon health info including running state."""
+    health = {
+        "alive": False,
+        "running": False,
+        "pid": None,
+        "last_update": None,
+        "simulation_mode": True,
+        "position_count": 0,
+        "state": "UNKNOWN",
+        "error": None,
+        "status": {},
+    }
+    
+    if not os.path.exists(STATUS_FILE):
+        health["error"] = "Status file not found"
+        return health
+    
+    try:
+        with open(STATUS_FILE, 'r') as f:
+            status = json.load(f)
+            health["status"] = status
+        
+        pid = status.get('pid')
+        if not pid:
+            health["error"] = "No PID in status file"
+            return health
+        
+        health["pid"] = pid
+        
+        # Check if process is alive
+        try:
+            os.kill(pid, 0)
+            health["alive"] = True
+        except (OSError, ProcessLookupError):
+            health["error"] = f"Process {pid} not found"
+            return health
+        
+        # Check heartbeat
+        last_update = status.get('last_update')
+        if last_update:
+            try:
+                last_update_str = last_update.rstrip('Z')
+                dt = datetime.fromisoformat(last_update_str)
+                elapsed = (datetime.utcnow() - dt).total_seconds()
+                health["last_update"] = last_update
+                
+                if elapsed > DAEMON_STALE_THRESHOLD:
+                    health["error"] = f"Heartbeat stale ({elapsed:.1f}s)"
+                    return health
+            except ValueError as e:
+                health["error"] = f"Invalid timestamp: {e}"
+                return health
+        
+        # Daemon is alive and healthy; check running state
+        health["running"] = status.get("running", False)
+        health["state"] = status.get("state", "UNKNOWN")
+        health["simulation_mode"] = status.get("simulation_mode", True)
+        health["position_count"] = status.get("position_count", 0)
+        
+        return health
+        
+    except Exception as e:
+        health["error"] = str(e)
+        logger.error(f"Error reading daemon health: {e}")
+        return health
+
 
 def get_bot_status():
+    """Legacy helper for backwards compatibility."""
     if os.path.exists(STATUS_FILE):
         try:
             with open(STATUS_FILE, 'r') as f:
@@ -373,8 +452,10 @@ def render_dashboard(service, selected_symbol, primary_timeframe):
             st.plotly_chart(fig, use_container_width=True, key=f"pos_viz_{symbol}")
             
             if st.button("CLOSE POSITION", type="primary"):
-                send_command(f"ACTION=CLOSE_ALL\nPAIR={symbol}")
-                st.success("Close command sent!")
+                if send_command(f"ACTION=CLOSE_ALL\nPAIR={symbol}"):
+                    st.success("Close command sent!")
+                else:
+                    st.error("Failed to send close command")
                 
         else:
             st.info("No active positions")
@@ -557,8 +638,10 @@ def render_debug_section(service):
 PAIR={service.symbol}
 SCORE={score_input:.2f}
 TIMESTAMP={datetime.utcnow().isoformat()}Z"""
-                    send_command(cmd)
-                    st.info(f"Signal sent to daemon:\n{cmd}")
+                    if send_command(cmd):
+                        st.info(f"Signal sent to daemon:\n{cmd}")
+                    else:
+                        st.error("Failed to send signal to daemon")
                 else:
                     st.error(f"❌ Risk Check FAILED: {reason}")
             except Exception as e:
@@ -694,19 +777,50 @@ def main():
         st.sidebar.markdown("---")
         st.sidebar.subheader("Daemon Control")
         
-        status = get_bot_status()
-        daemon_running = is_daemon_running()
+        health = get_daemon_health()
+        daemon_running = health["running"]
+        daemon_alive = health["alive"]
         
-        if daemon_running:
-            st.sidebar.success(f"Daemon Running (PID: {status.get('pid')})")
-            if st.sidebar.button("Stop Daemon"):
-                send_command("ACTION=STOP")
-                st.sidebar.info("Stop command sent")
+        # Display daemon status
+        if daemon_alive and daemon_running:
+            status_text = f"✅ **Running** (PID: {health['pid']})"
+            if health.get("simulation_mode"):
+                status_text += " [SIM]"
+            st.sidebar.success(status_text)
+            
+            if health.get("position_count", 0) > 0:
+                st.sidebar.info(f"📊 {health['position_count']} active position(s)")
+            
+            if st.sidebar.button("Stop Bot"):
+                if send_command("ACTION=STOP"):
+                    st.sidebar.info("Stop command sent")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.sidebar.error("Failed to send stop command")
+                    
+        elif daemon_alive and not daemon_running:
+            st.sidebar.warning(f"⏸️ **Idle** (PID: {health['pid']})")
+            if st.sidebar.button("Start Bot"):
+                if send_command("ACTION=START"):
+                    st.sidebar.info("Start command sent")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.sidebar.error("Failed to send start command")
         else:
-            st.sidebar.warning("Daemon Stopped")
+            st.sidebar.error("❌ **Daemon Not Running**")
+            if health.get("error"):
+                st.sidebar.caption(f"Error: {health['error']}")
+            
             if st.sidebar.button("Start Daemon"):
-                start_bot_daemon()
-                st.sidebar.info("Starting daemon...")
+                success, message = start_bot_daemon()
+                if success:
+                    st.sidebar.success(message)
+                else:
+                    st.sidebar.error(message)
+                time.sleep(2)
+                st.rerun()
 
         # -- Main UI --
         render_ui(service, selected_symbol, primary_timeframe)
