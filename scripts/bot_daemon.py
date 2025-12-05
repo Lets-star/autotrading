@@ -51,6 +51,12 @@ class BotDaemon:
         self.testnet_api_secret = settings.bybit_testnet_api_secret
         
         logger.info("Initializing BotDaemon")
+        logger.info(f"Environment: BYBIT_TESTNET={os.environ.get('BYBIT_TESTNET', 'not set')}")
+        logger.info(f"Environment: BYBIT_TESTNET_API_KEY={'set' if os.environ.get('BYBIT_TESTNET_API_KEY') else 'not set'}")
+        logger.info(f"Environment: BYBIT_TESTNET_API_SECRET={'set' if os.environ.get('BYBIT_TESTNET_API_SECRET') else 'not set'}")
+        logger.info(f"Settings: bybit_testnet={settings.bybit_testnet}")
+        logger.info(f"Settings: testnet_api_key={'set' if self.testnet_api_key else 'not set'}")
+        logger.info(f"Settings: testnet_api_secret={'set' if self.testnet_api_secret else 'not set'}")
         logger.info("  - Public market data will use Bybit mainnet endpoints")
         if self.testnet:
             logger.info("  - Private operations configured for Bybit testnet endpoints")
@@ -66,18 +72,23 @@ class BotDaemon:
         self.private_fetcher = None
         try:
             if self.testnet:
+                logger.info("Creating testnet private client...")
                 private_client = get_bybit_private_testnet_client(
                     api_key=self.testnet_api_key,
                     api_secret=self.testnet_api_secret,
                 )
+                logger.info("Testnet private client created successfully")
             else:
+                logger.info("Creating mainnet private client...")
                 private_client = get_bybit_private_mainnet_client(
                     api_key=self.api_key,
                     api_secret=self.api_secret,
                 )
+                logger.info("Mainnet private client created successfully")
+            
             self.private_fetcher = BybitDataFetcher(api_key=None, api_secret=None, testnet=self.testnet)
             self.private_fetcher.session = private_client
-            logger.info(f"Private {'testnet' if self.testnet else 'mainnet'} client initialized successfully")
+            logger.info(f"Private {'testnet' if self.testnet else 'mainnet'} client initialized and assigned to fetcher")
         except ValueError as e:
             logger.error(f"Failed to initialize private {'testnet' if self.testnet else 'mainnet'} client: {e}")
             logger.error("Position tracking and order execution will not be available.")
@@ -127,7 +138,17 @@ class BotDaemon:
              pass
 
     def run(self):
-        logger.info("Bot daemon initialized")
+        logger.info("=" * 60)
+        logger.info("BOT DAEMON STARTING")
+        logger.info("=" * 60)
+        logger.info(f"Configuration Summary:")
+        logger.info(f"  - Symbol: {self.symbol}")
+        logger.info(f"  - Timeframes: {self.timeframes}")
+        logger.info(f"  - Testnet mode: {self.testnet}")
+        logger.info(f"  - Public data endpoint: Bybit Mainnet")
+        logger.info(f"  - Private operations endpoint: Bybit {'Testnet' if self.testnet else 'Mainnet'}")
+        logger.info(f"  - Position tracker: {'Enabled' if self.tracker else 'Disabled (no API keys)'}")
+        logger.info("=" * 60)
         
         while True:
             try:

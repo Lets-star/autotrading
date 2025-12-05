@@ -30,11 +30,16 @@ def get_bybit_private_testnet_client(api_key: Optional[str] = None, api_secret: 
         raise ValueError("Bybit testnet API keys are required for private operations")
     
     logger.info("Creating Bybit private testnet client (endpoint: https://api-testnet.bybit.com)")
-    return HTTP(
+    logger.info(f"Testnet API key (first 8 chars): {api_key[:8] if api_key else 'None'}...")
+    client = HTTP(
         api_key=api_key,
         api_secret=api_secret,
         testnet=True
     )
+    # Verify the client endpoint - try different attribute names
+    endpoint_attr = getattr(client, 'endpoint', None) or getattr(client, 'base_url', None) or getattr(client, '_endpoint', None)
+    logger.info(f"Client created - testnet flag: True, endpoint attribute: {endpoint_attr}")
+    return client
 
 def get_bybit_private_mainnet_client(api_key: Optional[str] = None, api_secret: Optional[str] = None) -> HTTP:
     """
@@ -51,8 +56,12 @@ def get_bybit_private_mainnet_client(api_key: Optional[str] = None, api_secret: 
         raise ValueError("Bybit mainnet API keys are required for private operations")
     
     logger.info("Creating Bybit private mainnet client (endpoint: https://api.bybit.com)")
-    return HTTP(
+    logger.info(f"Mainnet API key (first 8 chars): {api_key[:8] if api_key else 'None'}...")
+    client = HTTP(
         api_key=api_key,
         api_secret=api_secret,
         testnet=False
     )
+    endpoint_attr = getattr(client, 'endpoint', None) or getattr(client, 'base_url', None) or getattr(client, '_endpoint', None)
+    logger.info(f"Client created - testnet flag: False, endpoint attribute: {endpoint_attr}")
+    return client

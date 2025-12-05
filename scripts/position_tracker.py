@@ -11,9 +11,16 @@ class PositionTracker:
         self.fetcher = fetcher
         self.storage_file = Path(storage_file)
         self.storage_file.parent.mkdir(parents=True, exist_ok=True)
+        self.logged_endpoint = False
         
     def fetch_positions(self, symbol: str = None) -> List[Dict[str, Any]]:
         try:
+            # Log endpoint once per tracker instance
+            if not self.logged_endpoint:
+                endpoint_attr = getattr(self.fetcher.session, 'endpoint', None) or getattr(self.fetcher.session, 'base_url', None) or getattr(self.fetcher.session, '_endpoint', None)
+                logger.info(f"PositionTracker using session with endpoint: {endpoint_attr}")
+                self.logged_endpoint = True
+            
             # category="linear" for USDT perps usually
             params = {"category": "linear", "settleCoin": "USDT"}
             if symbol:
@@ -43,7 +50,17 @@ class PositionTracker:
         except Exception as e:
             error_str = str(e).lower()
             if "401" in error_str or "unauthorized" in error_str:
-                logger.error(f"Authentication exception fetching positions: {e}. Please check API keys and testnet/mainnet configuration.")
+                endpoint_info = ""
+                if hasattr(self.fetcher.session, 'endpoint'):
+                    endpoint_info = f" (endpoint: {self.fetcher.session.endpoint})"
+                elif hasattr(self.fetcher.session, 'base_url'):
+                    endpoint_info = f" (endpoint: {self.fetcher.session.base_url})"
+                logger.error(f"Authentication exception fetching positions: {e}{endpoint_info}")
+                logger.error("Possible causes:")
+                logger.error("  1. API keys are invalid or expired")
+                logger.error("  2. API keys don't have required permissions (enable 'Account' and 'Position' read permissions)")
+                logger.error("  3. Testnet keys are being used with mainnet endpoint (or vice versa)")
+                logger.error("  4. IP whitelist restrictions on your API keys")
             elif "http status code is not 200" in error_str:
                 logger.error(f"HTTP error fetching positions: {e}. This may indicate incorrect testnet/mainnet settings.")
             else:
