@@ -134,19 +134,6 @@ except:
 if not BYBIT_API_KEY:
     st.sidebar.warning("No API Key found. Using public endpoints only where possible.")
 
-# -- Services --
-@st.cache_resource
-def get_market_service(api_key, api_secret):
-    return MarketDataService(
-        api_key=api_key, 
-        api_secret=api_secret, 
-        symbol="BTCUSDT", 
-        timeframes=["1h", "4h", "1d"],
-        selected_timeframe="1h"
-    )
-
-service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET)
-
 # -- Sidebar Controls --
 st.sidebar.title("🤖 Bot Control")
 mode = st.sidebar.radio("Operation Mode", ["Live Dashboard", "Backtest Lab"])
@@ -154,6 +141,26 @@ mode = st.sidebar.radio("Operation Mode", ["Live Dashboard", "Backtest Lab"])
 st.sidebar.markdown("---")
 st.sidebar.subheader("Settings")
 selected_symbol = st.sidebar.text_input("Symbol", "BTCUSDT", key="selected_pair")
+
+# Testnet Configuration
+use_testnet = st.sidebar.checkbox("Use Bybit Testnet", value=settings.bybit_testnet, key="use_testnet")
+if use_testnet != settings.bybit_testnet:
+    # Note: This won't persist after restart unless saved to .env
+    st.sidebar.info("Testnet setting updated for current session")
+
+# -- Services --
+@st.cache_resource
+def get_market_service(api_key, api_secret, testnet=False):
+    return MarketDataService(
+        api_key=api_key, 
+        api_secret=api_secret, 
+        symbol="BTCUSDT", 
+        timeframes=["1h", "4h", "1d"],
+        selected_timeframe="1h",
+        testnet=testnet
+    )
+
+service = get_market_service(BYBIT_API_KEY, BYBIT_API_SECRET, use_testnet)
 
 # Timeframe Selector
 if "active_timeframes" not in st.session_state:
@@ -541,6 +548,9 @@ if mode == "Live Dashboard":
     bot_status = get_bot_status()
     is_running = is_daemon_running()
     
+    # Display testnet status
+    st.info(f"🔧 Environment: {'Bybit Testnet' if use_testnet else 'Bybit Mainnet'}")
+    
     st.metric("Daemon Status", "Running" if is_running else "Stopped", 
               delta="Active" if is_running else "Inactive", 
               delta_color="normal" if is_running else "off")
@@ -609,7 +619,8 @@ elif mode == "Backtest Lab":
                 api_key=BYBIT_API_KEY, 
                 api_secret=BYBIT_API_SECRET,
                 active_timeframes=st.session_state.active_timeframes,
-                data_source=data_source
+                data_source=data_source,
+                testnet=use_testnet
             )
             
             # Apply UI Settings to Backtest Engine

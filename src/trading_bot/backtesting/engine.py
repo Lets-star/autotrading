@@ -9,11 +9,12 @@ from trading_bot.logger import get_logger
 logger = get_logger(__name__)
 
 class BacktestEngine:
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None, data_source: str = "bybit"):
+    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, active_timeframes: Optional[List[str]] = None, data_source: str = "bybit", testnet: bool = False):
         self.active_timeframes = active_timeframes or ['1h']
         self.scoring = ScoringService(active_timeframes=self.active_timeframes)
         self.risk = RiskService()
         self.data_source = data_source.lower()
+        self.testnet = testnet
         
         if self.data_source == "binance":
              # Fallback to Bybit if Binance is requested but we know it fails, 
@@ -22,8 +23,8 @@ class BacktestEngine:
              logger.warning("Binance data source requested but might be blocked. Consider using 'bybit'.")
              self.fetcher = BinanceDataFetcher(api_key=api_key, api_secret=api_secret)
         else:
-             self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
-             logger.info("Using Bybit Data Fetcher")
+             self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret, testnet=testnet)
+             logger.info(f"Using Bybit Data Fetcher with testnet={testnet}")
              
         self.trades = []
         self.balance = 10000.0
