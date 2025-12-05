@@ -14,6 +14,11 @@ from trading_bot.config import settings
 from trading_bot.data_feeds.bybit_fetcher import BybitDataFetcher
 from trading_bot.scoring.service import ScoringService
 from trading_bot.risk.service import RiskService
+from trading_bot.bybit_clients import (
+    get_bybit_public_mainnet_client,
+    get_bybit_private_testnet_client,
+    get_bybit_private_mainnet_client,
+)
 
 try:
     from signal_handler import SignalHandler
@@ -39,40 +44,70 @@ class BotDaemon:
         self.symbol = "BTCUSDT" 
         self.timeframes = ["1h", "4h", "1d"]
         
-        # Load API keys and testnet setting
         self.api_key = settings.api_key
         self.api_secret = settings.api_secret
-        self.testnet = settings.bybit_testnet
+        self.testnet = bool(settings.bybit_testnet)
+        self.testnet_api_key = settings.bybit_testnet_api_key
+        self.testnet_api_secret = settings.bybit_testnet_api_secret
         
-        logger.info(f"Initializing BotDaemon with Bybit {'testnet' if self.testnet else 'mainnet'}")
+        logger.info("Initializing BotDaemon")
+        logger.info("  - Public market data will use Bybit mainnet endpoints")
+        if self.testnet:
+            logger.info("  - Private operations configured for Bybit testnet endpoints")
+        else:
+            logger.info("  - Private operations configured for Bybit mainnet endpoints")
         
-        self.fetcher = BybitDataFetcher(self.api_key, self.api_secret, testnet=self.testnet)
+        # Create public mainnet fetcher for market data
+        public_client = get_bybit_public_mainnet_client()
+        self.public_fetcher = BybitDataFetcher(api_key=None, api_secret=None, testnet=False)
+        self.public_fetcher.session = public_client
+        
+        # Create private client for trading operations (testnet when enabled)
+        self.private_fetcher = None
+        try:
+            if self.testnet:
+                private_client = get_bybit_private_testnet_client(
+                    api_key=self.testnet_api_key,
+                    api_secret=self.testnet_api_secret,
+                )
+            else:
+                private_client = get_bybit_private_mainnet_client(
+                    api_key=self.api_key,
+                    api_secret=self.api_secret,
+                )
+            self.private_fetcher = BybitDataFetcher(api_key=None, api_secret=None, testnet=self.testnet)
+            self.private_fetcher.session = private_client
+            logger.info(f"Private {'testnet' if self.testnet else 'mainnet'} client initialized successfully")
+        except ValueError as e:
+            logger.error(f"Failed to initialize private {'testnet' if self.testnet else 'mainnet'} client: {e}")
+            logger.error("Position tracking and order execution will not be available.")
+        
         self.scoring = ScoringService(active_timeframes=self.timeframes)
         self.risk = RiskService()
         
         self.signal_handler = SignalHandler()
-        self.tracker = PositionTracker(self.fetcher)
+        self.tracker = PositionTracker(self.private_fetcher) if self.private_fetcher else None
         
         self.last_trade_time = None
         self.total_pnl = 0.0 # This would need persistent storage or fetching from account
 
     def execute_logic(self):
-        # 1. Fetch Data
-        logger.debug(f"Fetching data for {self.symbol}")
-        df = self.fetcher.fetch_history(self.symbol, "1h", limit=100) # Use 1h as primary
+        # 1. Fetch Data from mainnet (public data)
+        logger.debug(f"Fetching market data for {self.symbol} from mainnet")
+        df = self.public_fetcher.fetch_history(self.symbol, "1h", limit=100)
         
         if df.empty:
-            logger.warning("No data received")
+            logger.warning("No data received from mainnet")
             return
 
         # 2. Calculate Signals
-        # We need MTF data for scoring
+        # We need MTF data for scoring - all from mainnet
         mtf_data = {}
         for tf in self.timeframes:
             if tf == "1h":
                 mtf_data[tf] = df
             else:
-                mtf_data[tf] = self.fetcher.fetch_history(self.symbol, tf, limit=100)
+                mtf_data[tf] = self.public_fetcher.fetch_history(self.symbol, tf, limit=100)
         
         signal = self.scoring.calculate_signals(df, mtf_data=mtf_data)
         
@@ -125,7 +160,7 @@ class BotDaemon:
                         pass
                 
                 # Fetch positions (Always, for monitoring)
-                positions = self.tracker.fetch_positions()
+                positions = self.tracker.fetch_positions() if self.tracker else []
                 
                 # Calculate PnL from positions (unrealized)
                 # current_pnl = sum([float(p.get('unrealisedPnl', 0)) for p in positions])
@@ -139,7 +174,9 @@ class BotDaemon:
                     "total_pnl": self.total_pnl, # Placeholder
                     "position_count": len(positions),
                     "pid": os.getpid(),
-                    "testnet": self.testnet
+                    "testnet": self.testnet,
+                    "public_endpoint": "mainnet",  # Using mainnet for public data
+                    "private_endpoint": "testnet" if self.testnet else "mainnet"
                 }
                 self.signal_handler.update_status("Running" if self.running and not self.paused else "Paused" if self.paused else "Stopped", status_data)
                 
