@@ -28,10 +28,26 @@ class PositionTracker:
                 self.save_positions(active_positions)
                 return active_positions
             else:
-                logger.error(f"Error fetching positions: {response['retMsg']}")
+                # Handle specific error codes more gracefully
+                ret_code = response['retCode']
+                ret_msg = response.get('retMsg', 'Unknown error')
+                
+                if ret_code == 401:
+                    logger.error(f"Authentication error fetching positions: {ret_msg}. Please check API keys and testnet/mainnet configuration.")
+                elif ret_code == 10003:  # Invalid request
+                    logger.warning(f"Invalid request for positions: {ret_msg}")
+                else:
+                    logger.error(f"Error fetching positions (code {ret_code}): {ret_msg}")
+                
                 return []
         except Exception as e:
-            logger.error(f"Exception fetching positions: {e}")
+            error_str = str(e).lower()
+            if "401" in error_str or "unauthorized" in error_str:
+                logger.error(f"Authentication exception fetching positions: {e}. Please check API keys and testnet/mainnet configuration.")
+            elif "http status code is not 200" in error_str:
+                logger.error(f"HTTP error fetching positions: {e}. This may indicate incorrect testnet/mainnet settings.")
+            else:
+                logger.error(f"Exception fetching positions: {e}")
             return []
 
     def save_positions(self, positions: List[Dict[str, Any]]):

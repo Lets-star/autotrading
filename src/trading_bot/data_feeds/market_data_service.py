@@ -10,15 +10,16 @@ from trading_bot.logger import get_logger
 logger = get_logger(__name__)
 
 class MarketDataService:
-    def __init__(self, api_key: str, api_secret: str, symbol: str, timeframes: List[str], selected_timeframe: str = "1h"):
+    def __init__(self, api_key: str, api_secret: str, symbol: str, timeframes: List[str], selected_timeframe: str = "1h", testnet: bool = False):
         self.api_key = api_key
         self.api_secret = api_secret
         self.symbol = symbol
         self.timeframes = timeframes
         self.selected_timeframe = selected_timeframe
+        self.testnet = testnet
         
         # Initialize fetcher
-        self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret)
+        self.fetcher = BybitDataFetcher(api_key=api_key, api_secret=api_secret, testnet=testnet)
         self.scoring = ScoringService(active_timeframes=timeframes)
         self.risk = RiskService()
         

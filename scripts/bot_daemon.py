@@ -39,11 +39,14 @@ class BotDaemon:
         self.symbol = "BTCUSDT" 
         self.timeframes = ["1h", "4h", "1d"]
         
-        # Load API keys
+        # Load API keys and testnet setting
         self.api_key = settings.api_key
         self.api_secret = settings.api_secret
+        self.testnet = settings.bybit_testnet
         
-        self.fetcher = BybitDataFetcher(self.api_key, self.api_secret)
+        logger.info(f"Initializing BotDaemon with Bybit {'testnet' if self.testnet else 'mainnet'}")
+        
+        self.fetcher = BybitDataFetcher(self.api_key, self.api_secret, testnet=self.testnet)
         self.scoring = ScoringService(active_timeframes=self.timeframes)
         self.risk = RiskService()
         
@@ -135,7 +138,8 @@ class BotDaemon:
                     "last_update": datetime.now().isoformat(),
                     "total_pnl": self.total_pnl, # Placeholder
                     "position_count": len(positions),
-                    "pid": os.getpid()
+                    "pid": os.getpid(),
+                    "testnet": self.testnet
                 }
                 self.signal_handler.update_status("Running" if self.running and not self.paused else "Paused" if self.paused else "Stopped", status_data)
                 
@@ -144,9 +148,18 @@ class BotDaemon:
                 
                 time.sleep(1)
                 
+            except KeyboardInterrupt:
+                logger.info("Keyboard interrupt received. Shutting down gracefully...")
+                break
             except Exception as e:
-                logger.error(f"Error in daemon loop: {e}", exc_info=True)
-                self.signal_handler.update_status("Error", {"error": str(e)})
+                error_str = str(e).lower()
+                # Don't exit on authentication or HTTP errors - just log and continue
+                if any(keyword in error_str for keyword in ["401", "unauthorized", "http status code is not 200"]):
+                    logger.error(f"Recoverable error in daemon loop: {e}. Continuing operation...")
+                else:
+                    logger.error(f"Error in daemon loop: {e}", exc_info=True)
+                    self.signal_handler.update_status("Error", {"error": str(e)})
+                
                 time.sleep(5) # Backoff on error
 
 if __name__ == "__main__":
