@@ -17,15 +17,18 @@ class BybitDataFetcher:
         self.testnet = testnet
         if session is not None:
             self.session = session
+            # When using a pre-configured session, log its actual endpoint
+            endpoint_attr = getattr(session, 'endpoint', None) or getattr(session, 'base_url', None) or getattr(session, '_endpoint', None)
+            logger.info(f"BybitDataFetcher initialized with pre-configured session (endpoint: {endpoint_attr})")
         else:
             self.session = HTTP(
                 testnet=testnet,
                 api_key=api_key,
                 api_secret=api_secret
             )
+            endpoint = 'https://api-testnet.bybit.com' if testnet else 'https://api.bybit.com'
+            logger.info(f"BybitDataFetcher initialized with testnet={testnet} (endpoint: {endpoint})")
         self.status = "Idle"
-        endpoint = 'https://api-testnet.bybit.com' if testnet else 'https://api.bybit.com'
-        logger.info(f"BybitDataFetcher initialized with testnet={testnet} (endpoint: {endpoint})")
 
     def _map_interval(self, interval: str) -> str:
         mapping = {
