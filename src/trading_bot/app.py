@@ -8,10 +8,14 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.data_feeds.market_data_service import MarketDataService
 from trading_bot.ui.charting import plot_candle_chart, plot_volume_chart, render_tradingview_chart
+from trading_bot.logger import get_logger
+
+logger = get_logger(__name__)
 
 # -- Constants & Helpers --
 DAEMON_SCRIPT = "scripts/bot_daemon.py"
@@ -44,12 +48,24 @@ def is_daemon_running():
             return False
     return False
 
-def start_bot_daemon():
+def start_bot_daemon(use_testnet: bool, testnet_api_key: Optional[str] = None, testnet_api_secret: Optional[str] = None) -> bool:
+    if use_testnet and (not testnet_api_key or not testnet_api_secret):
+        st.error("Bybit testnet API keys are required to run the bot in testnet mode.")
+        return False
+
     if not is_daemon_running():
         # Start the process in background
         # Calculate project root: src/trading_bot/app.py -> src/trading_bot -> src -> project_root
         root_dir = Path(__file__).resolve().parents[2]
         daemon_script = root_dir / DAEMON_SCRIPT
+        
+        # Prepare environment for the daemon process
+        env = os.environ.copy()
+        env["BYBIT_TESTNET"] = "1" if use_testnet else "0"
+        if use_testnet:
+            env["BYBIT_TESTNET_API_KEY"] = testnet_api_key
+            env["BYBIT_TESTNET_API_SECRET"] = testnet_api_secret
+            logger.info("Passing Bybit testnet credentials to bot daemon environment")
         
         # On Windows, use CREATE_NEW_PROCESS_GROUP and CREATE_NO_WINDOW to prevent the subprocess
         # from inheriting the console. This prevents the daemon from affecting Streamlit's process.
@@ -58,7 +74,8 @@ def start_bot_daemon():
             'cwd': str(root_dir),
             'stdin': subprocess.DEVNULL,
             'stdout': subprocess.DEVNULL,
-            'stderr': subprocess.DEVNULL
+            'stderr': subprocess.DEVNULL,
+            'env': env
         }
         
         if platform.system() == 'Windows':
@@ -71,7 +88,10 @@ def start_bot_daemon():
             time.sleep(2) # Wait for startup
         except Exception as e:
             st.error(f"Failed to start bot daemon: {e}")
-            return
+            return False
+    else:
+        logger.info("Bot daemon already running - reusing existing process")
+    return True
 
 def send_command(cmd):
     # Ensure directory exists
@@ -131,6 +151,15 @@ except:
     BYBIT_API_KEY = settings.api_key
     BYBIT_API_SECRET = settings.api_secret
 
+BYBIT_TESTNET_API_KEY = settings.bybit_testnet_api_key
+BYBIT_TESTNET_API_SECRET = settings.bybit_testnet_api_secret
+try:
+    if "bybit_testnet" in st.secrets:
+        BYBIT_TESTNET_API_KEY = st.secrets["bybit_testnet"].get("api_key", BYBIT_TESTNET_API_KEY)
+        BYBIT_TESTNET_API_SECRET = st.secrets["bybit_testnet"].get("api_secret", BYBIT_TESTNET_API_SECRET)
+except Exception as e:
+    logger.warning(f"Unable to load Bybit testnet credentials from secrets: {e}")
+
 if not BYBIT_API_KEY:
     st.sidebar.warning("No API Key found. Using public endpoints only where possible.")
 
@@ -147,6 +176,9 @@ use_testnet = st.sidebar.checkbox("Use Bybit Testnet", value=settings.bybit_test
 if use_testnet != settings.bybit_testnet:
     # Note: This won't persist after restart unless saved to .env
     st.sidebar.info("Testnet setting updated for current session")
+
+if use_testnet and (not BYBIT_TESTNET_API_KEY or not BYBIT_TESTNET_API_SECRET):
+    st.sidebar.error("Bybit testnet API keys are missing. Please add them to Streamlit secrets or the environment before starting the bot.")
 
 # -- Services --
 @st.cache_resource
@@ -563,15 +595,24 @@ if mode == "Live Dashboard":
     # Start Logic
     if c_start.button("🟢 Start Bot", use_container_width=True, disabled=is_running and bot_status.get("running", False)):
         try:
+            started = True
             if not is_running:
                 with st.spinner("Starting bot daemon..."):
-                    start_bot_daemon()
-                st.success("Bot daemon started successfully!")
+                    started = start_bot_daemon(
+                        use_testnet=use_testnet,
+                        testnet_api_key=BYBIT_TESTNET_API_KEY,
+                        testnet_api_secret=BYBIT_TESTNET_API_SECRET
+                    )
+                if started:
+                    st.success("Bot daemon started successfully!")
+                else:
+                    st.error("Unable to start bot daemon. Please check your configuration and logs.")
             
-            send_command("START")
-            st.success("START signal sent to bot")
-            time.sleep(1)
-            st.rerun()
+            if started:
+                send_command("START")
+                st.success("START signal sent to bot")
+                time.sleep(1)
+                st.rerun()
         except Exception as e:
             st.error(f"Failed to start bot: {e}")
 

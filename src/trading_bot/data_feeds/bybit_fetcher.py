@@ -7,15 +7,25 @@ from trading_bot.logger import get_logger
 logger = get_logger(__name__)
 
 class BybitDataFetcher:
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None, testnet: bool = False):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        testnet: bool = False,
+        session: Optional[HTTP] = None
+    ):
         self.testnet = testnet
-        self.session = HTTP(
-            testnet=testnet,
-            api_key=api_key,
-            api_secret=api_secret
-        )
+        if session is not None:
+            self.session = session
+        else:
+            self.session = HTTP(
+                testnet=testnet,
+                api_key=api_key,
+                api_secret=api_secret
+            )
         self.status = "Idle"
-        logger.info(f"BybitDataFetcher initialized with testnet={testnet} (endpoint: {'https://api-testnet.bybit.com' if testnet else 'https://api.bybit.com'})")
+        endpoint = 'https://api-testnet.bybit.com' if testnet else 'https://api.bybit.com'
+        logger.info(f"BybitDataFetcher initialized with testnet={testnet} (endpoint: {endpoint})")
 
     def _map_interval(self, interval: str) -> str:
         mapping = {
