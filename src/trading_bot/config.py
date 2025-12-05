@@ -3,7 +3,11 @@ from pydantic import Field
 from typing import Optional
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8')
+    model_config = SettingsConfigDict(
+        env_file='.env', 
+        env_file_encoding='utf-8',
+        case_sensitive=False  # Allow case-insensitive environment variable matching
+    )
 
     api_key: Optional[str] = Field(None, description="Exchange API Key")
     api_secret: Optional[str] = Field(None, description="Exchange API Secret")
