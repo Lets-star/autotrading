@@ -7,6 +7,7 @@ import time
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from trading_bot.config import settings
 from trading_bot.backtesting.engine import BacktestEngine
 from trading_bot.data_feeds.market_data_service import MarketDataService
@@ -46,10 +47,31 @@ def is_daemon_running():
 def start_bot_daemon():
     if not is_daemon_running():
         # Start the process in background
-        # Ensure we are in the project root
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-        subprocess.Popen([sys.executable, DAEMON_SCRIPT], cwd=root_dir)
-        time.sleep(2) # Wait for startup
+        # Calculate project root: src/trading_bot/app.py -> src/trading_bot -> src -> project_root
+        root_dir = Path(__file__).resolve().parents[2]
+        daemon_script = root_dir / DAEMON_SCRIPT
+        
+        # On Windows, use CREATE_NEW_PROCESS_GROUP and CREATE_NO_WINDOW to prevent the subprocess
+        # from inheriting the console. This prevents the daemon from affecting Streamlit's process.
+        import platform
+        startup_kwargs = {
+            'cwd': str(root_dir),
+            'stdin': subprocess.DEVNULL,
+            'stdout': subprocess.DEVNULL,
+            'stderr': subprocess.DEVNULL
+        }
+        
+        if platform.system() == 'Windows':
+            # CREATE_NEW_PROCESS_GROUP = 0x00000200
+            # CREATE_NO_WINDOW = 0x08000000
+            startup_kwargs['creationflags'] = 0x00000200 | 0x08000000
+        
+        try:
+            subprocess.Popen([sys.executable, str(daemon_script)], **startup_kwargs)
+            time.sleep(2) # Wait for startup
+        except Exception as e:
+            st.error(f"Failed to start bot daemon: {e}")
+            return
 
 def send_command(cmd):
     # Ensure directory exists
@@ -530,21 +552,27 @@ if mode == "Live Dashboard":
     
     # Start Logic
     if c_start.button("🟢 Start Bot", use_container_width=True, disabled=is_running and bot_status.get("running", False)):
-        if not is_running:
-            start_bot_daemon()
-            st.toast("Starting Daemon...")
-            time.sleep(2) # Wait for it to come up
-        
-        send_command("START")
-        st.success("Signal sent: START")
-        time.sleep(1)
-        st.rerun()
+        try:
+            if not is_running:
+                with st.spinner("Starting bot daemon..."):
+                    start_bot_daemon()
+                st.success("Bot daemon started successfully!")
+            
+            send_command("START")
+            st.success("START signal sent to bot")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Failed to start bot: {e}")
 
     if c_stop.button("🔴 Stop Bot", use_container_width=True):
-        send_command("STOP")
-        st.error("Signal sent: STOP")
-        time.sleep(1)
-        st.rerun()
+        try:
+            send_command("STOP")
+            st.success("STOP signal sent to bot")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Failed to send stop signal: {e}")
         
     if st.button("⏸ Pause Bot", use_container_width=True):
         send_command("PAUSE")
