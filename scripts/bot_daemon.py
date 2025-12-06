@@ -136,11 +136,37 @@ class BotDaemon:
                     logger.info(f"Skipping trade - signal reversal too soon (last: {self.last_trade_action}, now: {action_type})")
                     return
             
-            # Check for existing positions (use last fetched snapshot)
+            # Check for existing positions and enforce risk constraints
             current_positions = self.current_positions or []
-            if current_positions:
-                logger.info(f"Skipping trade - already have an open position for {self.symbol}")
-                logger.debug(f"Current position: {current_positions[0].get('side')} {current_positions[0].get('size')}")
+            
+            # Determine trade direction
+            if "BUY" in action:
+                new_side = "Buy"
+                new_direction = "long"
+            else:
+                new_side = "Sell"
+                new_direction = "short"
+            
+            # Check position constraints
+            long_positions = [p for p in current_positions if p.get('side') == 'Buy']
+            short_positions = [p for p in current_positions if p.get('side') == 'Sell']
+            
+            # Risk constraint 1: Max 3 positions per direction
+            if new_direction == "long" and len(long_positions) >= 3:
+                logger.info(f"Skipping BUY trade - already have 3 LONG positions (risk limit)")
+                return
+            
+            if new_direction == "short" and len(short_positions) >= 3:
+                logger.info(f"Skipping SELL trade - already have 3 SHORT positions (risk limit)")
+                return
+            
+            # Risk constraint 2: No opposite directions simultaneously
+            if new_direction == "long" and len(short_positions) > 0:
+                logger.info(f"Skipping BUY trade - already have SHORT positions open (risk limit: no opposite directions)")
+                return
+            
+            if new_direction == "short" and len(long_positions) > 0:
+                logger.info(f"Skipping SELL trade - already have LONG positions open (risk limit: no opposite directions)")
                 return
             
             # Get current price and ATR for risk calculation
@@ -164,13 +190,9 @@ class BotDaemon:
             if atr is None or pd.isna(atr) or atr <= 0:
                 atr = max(current_price * 0.01, 1.0)
             
-            # Determine side
-            if "BUY" in action:
-                side = "Buy"
-                trade_side = "long"
-            else:
-                side = "Sell"
-                trade_side = "short"
+            # Determine side (already done above, but keep for clarity)
+            side = new_side
+            trade_side = new_direction
             
             # Calculate risk levels
             risk_levels = self.risk.calculate_risk_levels(

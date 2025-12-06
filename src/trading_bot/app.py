@@ -580,12 +580,15 @@ if mode == "Live Dashboard":
     bot_status = get_bot_status()
     is_running = is_daemon_running()
     
+    # Check the actual running state from bot_status
+    bot_actually_running = bot_status.get("running", False) if bot_status else False
+    
     # Display testnet status
     st.info(f"🔧 Environment: {'Bybit Testnet' if use_testnet else 'Bybit Mainnet'}")
     
-    st.metric("Daemon Status", "Running" if is_running else "Stopped", 
-              delta="Active" if is_running else "Inactive", 
-              delta_color="normal" if is_running else "off")
+    st.metric("Daemon Status", "Running" if bot_actually_running else "Stopped", 
+              delta="Active" if bot_actually_running else "Inactive", 
+              delta_color="normal" if bot_actually_running else "off")
               
     if bot_status:
         st.json(bot_status, expanded=False)
@@ -593,7 +596,7 @@ if mode == "Live Dashboard":
     c_start, c_stop = st.columns(2)
     
     # Start Logic
-    if c_start.button("🟢 Start Bot", use_container_width=True, disabled=is_running and bot_status.get("running", False)):
+    if c_start.button("🟢 Start Bot", use_container_width=True, disabled=bot_actually_running):
         try:
             started = True
             if not is_running:
