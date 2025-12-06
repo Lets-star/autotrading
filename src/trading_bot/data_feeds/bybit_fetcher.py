@@ -131,3 +131,128 @@ class BybitDataFetcher:
                 logger.error(f"Error fetching history from Bybit: {e}")
             self.status = "Failed"
             return pd.DataFrame()
+
+    def place_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        order_type: str = "Market",
+        category: str = "linear",
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+        position_idx: int = 0,
+        time_in_force: str = "GTC"
+    ) -> Dict[str, Any]:
+        """
+        Place an order on Bybit.
+        
+        Args:
+            symbol: Trading pair (e.g., "BTCUSDT")
+            side: "Buy" or "Sell"
+            qty: Quantity in base currency
+            order_type: "Market" or "Limit"
+            category: "linear" for USDT perpetuals, "spot" for spot
+            stop_loss: Optional stop loss price
+            take_profit: Optional take profit price
+            position_idx: 0 for one-way mode, 1 for long hedge, 2 for short hedge
+            time_in_force: "GTC", "IOC", "FOK"
+            
+        Returns:
+            Response dictionary from Bybit API
+        """
+        try:
+            params = {
+                "category": category,
+                "symbol": symbol,
+                "side": side,
+                "orderType": order_type,
+                "qty": str(qty),
+                "positionIdx": position_idx,
+                "timeInForce": time_in_force
+            }
+            
+            if stop_loss:
+                params["stopLoss"] = str(stop_loss)
+            if take_profit:
+                params["takeProfit"] = str(take_profit)
+            
+            logger.info(f"Placing {order_type} order: {side} {qty} {symbol}")
+            logger.info(f"Order parameters: {params}")
+            
+            response = self.session.place_order(**params)
+            
+            if response['retCode'] == 0:
+                order_id = response['result'].get('orderId', 'N/A')
+                logger.info(f"Order placed successfully. Order ID: {order_id}")
+                return response['result']
+            else:
+                ret_code = response['retCode']
+                ret_msg = response.get('retMsg', 'Unknown error')
+                logger.error(f"Failed to place order (code {ret_code}): {ret_msg}")
+                return {"error": ret_msg, "retCode": ret_code}
+                
+        except Exception as e:
+            error_str = str(e).lower()
+            if "401" in error_str or "unauthorized" in error_str:
+                logger.error(f"Authentication exception placing order: {e}. Please check API keys and testnet/mainnet configuration.")
+            else:
+                logger.error(f"Exception placing order: {e}")
+            return {"error": str(e)}
+
+    def close_position(
+        self,
+        symbol: str,
+        category: str = "linear",
+        position_idx: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Close a position by fetching current position and placing opposing order.
+        
+        Args:
+            symbol: Trading pair
+            category: "linear" for USDT perpetuals
+            position_idx: 0 for one-way mode
+            
+        Returns:
+            Response dictionary from order placement
+        """
+        try:
+            # Fetch current position
+            params = {"category": category, "symbol": symbol}
+            if category == "linear":
+                params["settleCoin"] = "USDT"
+            response = self.session.get_positions(**params)
+            
+            if response['retCode'] != 0:
+                logger.error(f"Failed to fetch position: {response.get('retMsg', 'Unknown error')}")
+                return {"error": "Failed to fetch position"}
+            
+            positions = response['result']['list']
+            active_pos = [p for p in positions if float(p.get('size', 0)) > 0]
+            
+            if not active_pos:
+                logger.warning(f"No active position found for {symbol}")
+                return {"error": "No active position"}
+            
+            position = active_pos[0]
+            size = float(position['size'])
+            side = position['side']  # "Buy" or "Sell"
+            
+            # Close position by placing opposite order
+            close_side = "Sell" if side == "Buy" else "Buy"
+            
+            logger.info(f"Closing {side} position of {size} {symbol} with {close_side} order")
+            
+            return self.place_order(
+                symbol=symbol,
+                side=close_side,
+                qty=size,
+                order_type="Market",
+                category=category,
+                position_idx=position_idx
+            )
+            
+        except Exception as e:
+            logger.error(f"Exception closing position: {e}")
+            return {"error": str(e)}
