@@ -46,19 +46,25 @@ class BotDaemon:
         self.symbol = "BTCUSDT" 
         self.timeframes = ["1h", "4h", "1d"]
         
+        # Read configuration dynamically to ensure environment variables are picked up
         self.api_key = settings.api_key
         self.api_secret = settings.api_secret
-        self.testnet = bool(settings.bybit_testnet)
-        self.testnet_api_key = settings.bybit_testnet_api_key
-        self.testnet_api_secret = settings.bybit_testnet_api_secret
+        
+        # Read testnet settings directly from environment for immediate updates
+        env_testnet = os.environ.get('BYBIT_TESTNET', '0').lower() in ('true', '1', 'yes', 'on', 't', 'y')
+        self.testnet = env_testnet or bool(settings.bybit_testnet)
+        
+        # Read testnet API keys from environment first, then fall back to settings
+        self.testnet_api_key = os.environ.get('BYBIT_TESTNET_API_KEY') or settings.bybit_testnet_api_key
+        self.testnet_api_secret = os.environ.get('BYBIT_TESTNET_API_SECRET') or settings.bybit_testnet_api_secret
         
         logger.info("Initializing BotDaemon")
-        logger.info(f"Environment: BYBIT_TESTNET={os.environ.get('BYBIT_TESTNET', 'not set')}")
-        logger.info(f"Environment: BYBIT_TESTNET_API_KEY={'set' if os.environ.get('BYBIT_TESTNET_API_KEY') else 'not set'}")
-        logger.info(f"Environment: BYBIT_TESTNET_API_SECRET={'set' if os.environ.get('BYBIT_TESTNET_API_SECRET') else 'not set'}")
-        logger.info(f"Settings: bybit_testnet={settings.bybit_testnet}")
-        logger.info(f"Settings: testnet_api_key={'set' if self.testnet_api_key else 'not set'}")
-        logger.info(f"Settings: testnet_api_secret={'set' if self.testnet_api_secret else 'not set'}")
+        logger.info(f"Environment BYBIT_TESTNET: {os.environ.get('BYBIT_TESTNET', 'not set')}")
+        logger.info(f"Environment BYBIT_TESTNET_API_KEY: {'set' if os.environ.get('BYBIT_TESTNET_API_KEY') else 'not set'}")
+        logger.info(f"Environment BYBIT_TESTNET_API_SECRET: {'set' if os.environ.get('BYBIT_TESTNET_API_SECRET') else 'not set'}")
+        logger.info(f"Final testnet setting: {self.testnet}")
+        logger.info(f"Final testnet_api_key: {'set' if self.testnet_api_key else 'not set'}")
+        logger.info(f"Final testnet_api_secret: {'set' if self.testnet_api_secret else 'not set'}")
         logger.info("  - Public market data will use Bybit mainnet endpoints")
         if self.testnet:
             logger.info("  - Private operations configured for Bybit testnet endpoints")
@@ -310,8 +316,17 @@ class BotDaemon:
         logger.info(f"  - Symbol: {self.symbol}")
         logger.info(f"  - Timeframes: {self.timeframes}")
         logger.info(f"  - Testnet mode: {self.testnet}")
-        logger.info(f"  - Public data endpoint: Bybit Mainnet")
-        logger.info(f"  - Private operations endpoint: Bybit {'Testnet' if self.testnet else 'Mainnet'}")
+        
+        # Show endpoint information
+        public_endpoint_url = getattr(self.public_fetcher.session, 'endpoint', None) or getattr(self.public_fetcher.session, 'base_url', None) or getattr(self.public_fetcher.session, '_endpoint', None) if self.public_fetcher else "Not available"
+        logger.info(f"  - Public data endpoint: {public_endpoint_url}")
+        
+        if self.private_fetcher:
+            private_endpoint_url = getattr(self.private_fetcher.session, 'endpoint', None) or getattr(self.private_fetcher.session, 'base_url', None) or getattr(self.private_fetcher.session, '_endpoint', None)
+            logger.info(f"  - Private operations endpoint: {private_endpoint_url}")
+        else:
+            logger.info(f"  - Private operations endpoint: Not available (no API keys)")
+            
         logger.info(f"  - Position tracker: {'Enabled' if self.tracker else 'Disabled (no API keys)'}")
         logger.info("=" * 60)
         
@@ -363,6 +378,19 @@ class BotDaemon:
                 # Calculate PnL from positions (unrealized)
                 # current_pnl = sum([float(p.get('unrealisedPnl', 0)) for p in positions])
                 
+                # Get endpoint information for status
+                public_endpoint = "mainnet"
+                private_endpoint = "testnet" if self.testnet else "mainnet"
+                
+                # Get actual endpoint URLs if available
+                if self.public_fetcher and hasattr(self.public_fetcher.session, 'endpoint'):
+                    public_endpoint_url = getattr(self.public_fetcher.session, 'endpoint', None) or getattr(self.public_fetcher.session, 'base_url', None) or getattr(self.public_fetcher.session, '_endpoint', None)
+                    public_endpoint = public_endpoint_url or public_endpoint
+                
+                if self.private_fetcher and hasattr(self.private_fetcher.session, 'endpoint'):
+                    private_endpoint_url = getattr(self.private_fetcher.session, 'endpoint', None) or getattr(self.private_fetcher.session, 'base_url', None) or getattr(self.private_fetcher.session, '_endpoint', None)
+                    private_endpoint = private_endpoint_url or private_endpoint
+
                 # Update Status
                 status_data = {
                     "running": self.running,
@@ -374,8 +402,8 @@ class BotDaemon:
                     "positions": positions,
                     "pid": os.getpid(),
                     "testnet": self.testnet,
-                    "public_endpoint": "mainnet",  # Using mainnet for public data
-                    "private_endpoint": "testnet" if self.testnet else "mainnet"
+                    "public_endpoint": public_endpoint,
+                    "private_endpoint": private_endpoint
                 }
                 self.signal_handler.update_status("Running" if self.running and not self.paused else "Paused" if self.paused else "Stopped", status_data)
                 
